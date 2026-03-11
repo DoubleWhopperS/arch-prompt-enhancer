@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>建筑 Prompt 增强器</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: { 50: '#f0f7ff', 100: '#e0effe', 300: '#a3d5ff', 500: '#3b9eff', 700: '#1a6fd4', 900: '#0d3b6f' },
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap');
+    body { font-family: 'Noto Sans SC', 'Inter', sans-serif; }
+    .drop-zone { transition: all 0.2s; }
+    .drop-zone:hover, .drop-zone.dragover { border-color: #3b9eff; background: #f0f7ff; }
+    .focus-tag { cursor: pointer; transition: all 0.15s; }
+    .focus-tag.active { background: #3b9eff; color: white; border-color: #3b9eff; }
+    .output-section { white-space: pre-wrap; }
+    .fade-in { animation: fadeIn 0.3s ease-in; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .streaming-cursor::after { content: '|'; animation: blink 0.8s infinite; }
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+    .ref-card { position: relative; }
+    .ref-card .remove-btn { position: absolute; top: -6px; right: -6px; }
+    .thumb-img { width: 100%; height: 120px; object-fit: cover; border-radius: 6px; }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+  <!-- Header -->
+  <header class="bg-white border-b border-gray-200 sticky top-0 z-10">
+    <div class="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
+      <div>
+        <h1 class="text-xl font-bold text-gray-900">建筑 Prompt 增强器</h1>
+        <p class="text-sm text-gray-500">Nano Banana Pro / Gemini 出图提示词优化</p>
+      </div>
+      <span class="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded">Claude Opus 4.6</span>
+    </div>
+  </header>
+
+  <main class="max-w-5xl mx-auto px-6 py-8 space-y-6">
+
+    <!-- 场景参数 -->
+    <section class="bg-white rounded-xl border border-gray-200 p-6 fade-in">
+      <h2 class="text-sm font-semibold text-gray-700 mb-4">基础设置</h2>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">场景类型</label>
+          <select id="sceneType" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+            <option value="">自动判断</option>
+            <option value="鸟瞰日景">鸟瞰日景</option>
+            <option value="鸟瞰黄昏">鸟瞰黄昏</option>
+            <option value="鸟瞰夜景">鸟瞰夜景</option>
+            <option value="半鸟瞰">半鸟瞰 (45°)</option>
+            <option value="人视日景">人视日景</option>
+            <option value="人视黄昏">人视黄昏</option>
+            <option value="人视夜景">人视夜景</option>
+            <option value="室内">室内</option>
+            <option value="雪景">雪景</option>
+            <option value="水景">水景/滨水</option>
+            <option value="城市更新">城市更新</option>
+            <option value="实体模型">实体模型渲染</option>
+            <option value="手绘风格">手绘风格</option>
+            <option value="黑白线稿">黑白线稿</option>
+            <option value="分析图">建筑分析图</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">时间天气</label>
+          <select id="timeWeather" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+            <option value="">自动判断</option>
+            <option value="晴天日光">晴天日光</option>
+            <option value="阴天漫射">阴天漫射</option>
+            <option value="清晨薄雾">清晨薄雾</option>
+            <option value="黄金时刻">黄金时刻</option>
+            <option value="蓝调时刻">蓝调时刻</option>
+            <option value="深夜">深夜</option>
+            <option value="雪后初霁">雪后初霁</option>
+            <option value="阴雨">阴雨</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">建筑风格</label>
+          <select id="buildingStyle" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+            <option value="">不限定</option>
+            <option value="极简主义">极简主义</option>
+            <option value="参数化">参数化</option>
+            <option value="粗野主义">粗野主义</option>
+            <option value="日式 (隈研吾)">日式 (隈研吾)</option>
+            <option value="北欧 (Snøhetta)">北欧 (Snøhetta)</option>
+            <option value="mir 风格">mir 风格</option>
+            <option value="SANAA 风格">SANAA 风格</option>
+            <option value="Zaha Hadid">Zaha Hadid</option>
+            <option value="David Chipperfield">David Chipperfield</option>
+            <option value="Herzog & de Meuron">Herzog & de Meuron</option>
+            <option value="Peter Zumthor">Peter Zumthor</option>
+            <option value="Lacaton & Vassal">Lacaton & Vassal</option>
+            <option value="John Pawson">John Pawson</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">出图方式</label>
+          <select id="outputMethod" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-transparent">
+            <option value="纯文字提示词">纯文字提示词</option>
+            <option value="风格迁移">风格迁移 (多图融合)</option>
+            <option value="建筑替换">建筑替换</option>
+            <option value="立面迁移">立面迁移/设计</option>
+          </select>
+        </div>
+      </div>
+    </section>
+
+    <!-- 设计意图 -->
+    <section class="bg-white rounded-xl border border-gray-200 p-6 fade-in">
+      <h2 class="text-sm font-semibold text-gray-700 mb-3">设计意图</h2>
+      <textarea id="intent" rows="4" placeholder="用自然语言描述你想要的效果，例如：&#10;一个校园建筑的人视效果图，阴天，mir 风格，低饱和度，建筑是清水混凝土 + 大面积玻璃幕墙，前景有水面倒影..."
+        class="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm resize-none focus:ring-2 focus:ring-brand-500 focus:border-transparent placeholder:text-gray-400"></textarea>
+    </section>
+
+    <!-- 图片上传区 -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+      <!-- 基础图 -->
+      <section class="bg-white rounded-xl border border-gray-200 p-6 fade-in">
+        <h2 class="text-sm font-semibold text-gray-700 mb-3">基础图 <span class="font-normal text-gray-400">(草图/白模/概念图)</span></h2>
+        <div id="baseDropZone" class="drop-zone border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer">
+          <div id="basePlaceholder">
+            <svg class="mx-auto h-10 w-10 text-gray-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+            </svg>
+            <p class="text-sm text-gray-500">拖拽或点击上传</p>
+          </div>
+          <div id="basePreview" class="hidden">
+            <img id="baseImg" class="thumb-img" />
+            <button onclick="removeBaseImage(event)" class="mt-2 text-xs text-red-500 hover:text-red-700">移除</button>
+          </div>
+          <input type="file" id="baseInput" accept="image/*" class="hidden" />
+        </div>
+      </section>
+
+      <!-- 参考图 -->
+      <section class="bg-white rounded-xl border border-gray-200 p-6 fade-in">
+        <h2 class="text-sm font-semibold text-gray-700 mb-3">参考图 <span class="font-normal text-gray-400">(可多张，标注关注点)</span></h2>
+        <div id="refList" class="space-y-3"></div>
+        <div id="refDropZone" class="drop-zone border-2 border-dashed border-gray-300 rounded-lg p-6 text-center cursor-pointer mt-3">
+          <p class="text-sm text-gray-500">+ 添加参考图</p>
+          <input type="file" id="refInput" accept="image/*" class="hidden" />
+        </div>
+      </section>
+    </div>
+
+    <!-- 生成按钮 -->
+    <div class="flex justify-center">
+      <button id="enhanceBtn" onclick="enhance()"
+        class="bg-brand-700 hover:bg-brand-900 text-white font-semibold px-8 py-3 rounded-xl text-sm transition-all shadow-lg shadow-brand-700/20 hover:shadow-brand-700/30 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/>
+        </svg>
+        生成 Enhanced Prompt
+      </button>
+    </div>
+
+    <!-- 输出区域 -->
+    <section id="outputSection" class="hidden bg-white rounded-xl border border-gray-200 p-6 fade-in">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-sm font-semibold text-gray-700">Enhanced Prompt</h2>
+        <button onclick="copyOutput()" class="text-xs text-brand-700 hover:text-brand-900 flex items-center gap-1 bg-brand-50 px-3 py-1.5 rounded-lg">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+          </svg>
+          复制全部
+        </button>
+      </div>
+      <div id="outputContent" class="output-section text-sm text-gray-800 leading-relaxed bg-gray-50 rounded-lg p-5 border border-gray-100 min-h-[200px]"></div>
+    </section>
+
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

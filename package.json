@@ -1,0 +1,16 @@
+{
+  "name": "arch-prompt-enhancer",
+  "version": "1.0.0",
+  "description": "建筑设计师 AI 出图 Prompt 增强工具",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "openai": "^4.78.0",
+    "dotenv": "^16.4.0",
+    "multer": "^1.4.5-lts.1"
+  }
+}
