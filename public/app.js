@@ -1,8 +1,44 @@
 // ============ State ============
 let baseImageData = null;
-const references = []; // [{ image: base64, focuses: string[] }]
+const references = []; // [{ image: data:image/..., focuses: string[] }]
 
 const FOCUS_OPTIONS = ['光线', '色调', '材质', '氛围', '配景', '构图', '空气感'];
+const MAX_IMAGE_DIM = 2048;
+
+// ============ Image Compression ============
+function compressImage(dataUrl) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      let { width, height } = img;
+      const origW = width, origH = height;
+
+      // 等比缩放
+      if (width > MAX_IMAGE_DIM || height > MAX_IMAGE_DIM) {
+        if (width > height) {
+          height = Math.round(height * MAX_IMAGE_DIM / width);
+          width = MAX_IMAGE_DIM;
+        } else {
+          width = Math.round(width * MAX_IMAGE_DIM / height);
+          height = MAX_IMAGE_DIM;
+        }
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+      const result = canvas.toDataURL('image/jpeg', 0.85);
+
+      const origMB = (dataUrl.length / 1024 / 1024).toFixed(1);
+      const newMB = (result.length / 1024 / 1024).toFixed(1);
+      console.log(`[compress] ${origW}x${origH} → ${width}x${height}, ${origMB}MB → ${newMB}MB`);
+      resolve(result);
+    };
+    img.src = dataUrl;
+  });
+}
 
 // ============ Base Image ============
 const baseDropZone = document.getElementById('baseDropZone');
@@ -20,8 +56,8 @@ baseInput.addEventListener('change', (e) => { if (e.target.files[0]) handleBaseF
 
 function handleBaseFile(file) {
   const reader = new FileReader();
-  reader.onload = (e) => {
-    baseImageData = e.target.result;
+  reader.onload = async (e) => {
+    baseImageData = await compressImage(e.target.result);
     document.getElementById('baseImg').src = baseImageData;
     document.getElementById('basePlaceholder').classList.add('hidden');
     document.getElementById('basePreview').classList.remove('hidden');
@@ -53,8 +89,9 @@ refInput.addEventListener('change', (e) => { if (e.target.files[0]) handleRefFil
 
 function handleRefFile(file) {
   const reader = new FileReader();
-  reader.onload = (e) => {
-    const ref = { image: e.target.result, focuses: [] };
+  reader.onload = async (e) => {
+    const compressed = await compressImage(e.target.result);
+    const ref = { image: compressed, focuses: [] };
     references.push(ref);
     renderRefList();
   };
@@ -113,7 +150,7 @@ async function enhance() {
   const outputSection = document.getElementById('outputSection');
   const outputContent = document.getElementById('outputContent');
   outputSection.classList.remove('hidden');
-  outputContent.innerHTML = '';
+  outputContent.textContent = '';
   outputContent.classList.add('streaming-cursor');
 
   const params = {
@@ -133,6 +170,10 @@ async function enhance() {
     })),
   };
 
+  // 日志：payload 大小
+  const payloadMB = (JSON.stringify(body).length / 1024 / 1024).toFixed(1);
+  console.log(`[enhance] sending request, payload=${payloadMB}MB, images=${(baseImageData ? 1 : 0) + references.length}`);
+
   try {
     const resp = await fetch('/api/enhance', {
       method: 'POST',
@@ -140,9 +181,18 @@ async function enhance() {
       body: JSON.stringify(body),
     });
 
+    console.log(`[enhance] response status: ${resp.status} ${resp.headers.get('content-type')}`);
+
+    if (!resp.ok && resp.headers.get('content-type')?.includes('application/json')) {
+      const errData = await resp.json();
+      outputContent.textContent = `[Error ${resp.status}]: ${errData.error || JSON.stringify(errData)}`;
+      return;
+    }
+
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    let gotContent = false;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -157,17 +207,26 @@ async function enhance() {
         try {
           const data = JSON.parse(line.slice(6));
           if (data.error) {
-            outputContent.innerHTML += `\n\n[Error: ${data.error}]`;
+            outputContent.textContent += `\n\n[Error: ${data.error}]`;
+            console.error('[enhance] stream error:', data.error);
           } else if (data.content) {
             outputContent.textContent += data.content;
+            gotContent = true;
           }
-          // auto-scroll
           outputContent.scrollTop = outputContent.scrollHeight;
-        } catch {}
+        } catch (parseErr) {
+          console.warn('[enhance] SSE parse error:', parseErr.message, 'line:', line.slice(0, 100));
+        }
       }
     }
+
+    if (!gotContent) {
+      outputContent.textContent = '[未收到输出] 可能原因：模型不支持图片输入，或请求超时。请打开浏览器控制台查看详细日志。';
+      console.warn('[enhance] no content received. Remaining buffer:', buffer.slice(0, 500));
+    }
   } catch (err) {
-    outputContent.innerHTML += `\n\n[网络错误: ${err.message}]`;
+    outputContent.textContent += `\n\n[网络错误: ${err.message}]`;
+    console.error('[enhance] fetch error:', err);
   } finally {
     outputContent.classList.remove('streaming-cursor');
     btn.disabled = false;
