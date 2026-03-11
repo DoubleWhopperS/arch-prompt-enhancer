@@ -1,5 +1,7 @@
 {
-  "buildCommand": "echo 'no build'",
+  "framework": null,
+  "buildCommand": "",
+  "installCommand": "npm install --omit=dev openai",
   "outputDirectory": "public",
   "rewrites": [
     { "source": "/api/:path*", "destination": "/api/:path*" }
