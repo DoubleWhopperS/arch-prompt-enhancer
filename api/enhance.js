@@ -204,7 +204,11 @@ module.exports = async function handler(req, res) {
     return res.status(500).json({ error: 'API Key 未配置' });
   }
 
-  const client = new OpenAI({ apiKey, baseURL });
+  const client = new OpenAI({
+    apiKey,
+    baseURL,
+    timeout: 90000, // 90s timeout
+  });
   const userContent = buildUserContent({ intent, params, baseImage, references });
 
   // SSE headers
@@ -212,6 +216,9 @@ module.exports = async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders?.();
+
+  // 发送诊断信息，让前端知道连接已建立
+  res.write(`data: ${JSON.stringify({ debug: `API: ${baseURL}, model: ${model}` })}\n\n`);
 
   try {
     const stream = await client.chat.completions.create({
@@ -233,8 +240,9 @@ module.exports = async function handler(req, res) {
     }
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
   } catch (err) {
-    console.error('Enhancement error:', err.message);
-    res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
+    const errDetail = `${err.message} | status=${err.status || 'N/A'} | baseURL=${baseURL}`;
+    console.error('Enhancement error:', errDetail);
+    res.write(`data: ${JSON.stringify({ error: errDetail })}\n\n`);
   } finally {
     res.end();
   }
