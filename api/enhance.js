@@ -197,7 +197,7 @@ module.exports = async function handler(req, res) {
   }
 
   const apiKey = process.env.TUZI_API_KEY;
-  const baseURL = process.env.TUZI_BASE_URL || 'https://api.tu-zi.com/v1';
+  const baseURL = process.env.TUZI_BASE_URL || 'https://llm.ai-nebula.com/v1';
   const model = process.env.MODEL || 'claude-opus-4-6';
 
   if (!apiKey) {
