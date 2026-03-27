@@ -3,7 +3,8 @@ let baseImageData = null;
 const references = []; // [{ image: data:image/..., focuses: string[] }]
 
 const FOCUS_OPTIONS = ['光线', '色调', '材质', '氛围', '配景', '构图', '空气感'];
-const MAX_IMAGE_DIM = 2048;
+const MAX_IMAGE_DIM = 1536;
+const MAX_PAYLOAD_MB = 4.0; // Vercel Hobby 限制 4.5MB，留 0.5MB 余量
 
 // ============ Image Compression ============
 function compressImage(dataUrl) {
@@ -29,7 +30,7 @@ function compressImage(dataUrl) {
       canvas.height = height;
       const ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0, width, height);
-      const result = canvas.toDataURL('image/jpeg', 0.85);
+      const result = canvas.toDataURL('image/jpeg', 0.75);
 
       const origMB = (dataUrl.length / 1024 / 1024).toFixed(1);
       const newMB = (result.length / 1024 / 1024).toFixed(1);
@@ -170,9 +171,18 @@ async function enhance() {
     })),
   };
 
-  // 日志：payload 大小
-  const payloadMB = (JSON.stringify(body).length / 1024 / 1024).toFixed(1);
+  // 检查 payload 大小（Vercel Hobby 限制 4.5MB）
+  const payloadStr = JSON.stringify(body);
+  const payloadMB = (payloadStr.length / 1024 / 1024).toFixed(1);
   console.log(`[enhance] sending request, payload=${payloadMB}MB, images=${(baseImageData ? 1 : 0) + references.length}`);
+
+  if (parseFloat(payloadMB) > MAX_PAYLOAD_MB) {
+    outputContent.textContent = `[请求体过大: ${payloadMB}MB，超出 ${MAX_PAYLOAD_MB}MB 限制]\n请减少图片数量或使用更小的图片。`;
+    outputContent.classList.remove('streaming-cursor');
+    btn.disabled = false;
+    btn.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/></svg> 生成 Enhanced Prompt';
+    return;
+  }
 
   try {
     const resp = await fetch('/api/enhance', {
