@@ -124,7 +124,7 @@ Peter Zumthor — 光影氛围，材料真实感
 
 主体使用中文，摄影术语和关键技术指令允许中英混合（如 low-angle perspective, board-formed concrete, volumetric fog 等）。色号用英文 hex 格式。`;
 
-function buildUserContent({ intent, params, baseImage, references }) {
+function buildUserContent({ intent, params, baseImageUrl, baseImage, references }) {
   const content = [];
   let textParts = [];
 
@@ -143,7 +143,8 @@ function buildUserContent({ intent, params, baseImage, references }) {
     textParts.push(`【设计意图】\n${intent}`);
   }
 
-  if (baseImage) {
+  const hasBase = baseImageUrl || baseImage;
+  if (hasBase) {
     textParts.push('【基础图】以下是需要增强的基础图（草图/白模/概念图），请严格遵守其构图和视角：');
   }
 
@@ -160,7 +161,10 @@ function buildUserContent({ intent, params, baseImage, references }) {
   textParts.push('请根据以上信息，生成一段四段叙事结构的建筑效果图 Prompt。');
   content.push({ type: 'text', text: textParts.join('\n\n') });
 
-  if (baseImage) {
+  // 基础图：优先 URL，兼容 base64
+  if (baseImageUrl) {
+    content.push({ type: 'image_url', image_url: { url: baseImageUrl } });
+  } else if (baseImage) {
     content.push({
       type: 'image_url',
       image_url: {
@@ -169,9 +173,12 @@ function buildUserContent({ intent, params, baseImage, references }) {
     });
   }
 
+  // 参考图：优先 URL，兼容 base64
   if (references && references.length > 0) {
     for (const ref of references) {
-      if (ref.image) {
+      if (ref.imageUrl) {
+        content.push({ type: 'image_url', image_url: { url: ref.imageUrl } });
+      } else if (ref.image) {
         content.push({
           type: 'image_url',
           image_url: {
@@ -190,9 +197,9 @@ module.exports = async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { intent, params, baseImage, references } = req.body;
+  const { intent, params, baseImage, baseImageUrl, references } = req.body;
 
-  if (!intent && !baseImage) {
+  if (!intent && !baseImage && !baseImageUrl) {
     return res.status(400).json({ error: '请至少提供设计意图或基础图' });
   }
 
@@ -209,7 +216,7 @@ module.exports = async function handler(req, res) {
     baseURL,
     timeout: 90000, // 90s timeout
   });
-  const userContent = buildUserContent({ intent, params, baseImage, references });
+  const userContent = buildUserContent({ intent, params, baseImage, baseImageUrl, references });
 
   // SSE headers
   res.setHeader('Content-Type', 'text/event-stream');

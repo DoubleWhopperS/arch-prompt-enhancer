@@ -3,10 +3,10 @@ let baseImageData = null;
 const references = []; // [{ image: data:image/..., focuses: string[] }]
 
 const FOCUS_OPTIONS = ['光线', '色调', '材质', '氛围', '配景', '构图', '空气感'];
-const MAX_IMAGE_DIM = 1536;
-const MAX_PAYLOAD_MB = 4.0; // Vercel Hobby 限制 4.5MB，留 0.5MB 余量
+const MAX_IMAGE_DIM = 2048;
 
 // ============ Image Compression ============
+// 只做尺寸限制，不过度压缩（图片会上传到 CDN）
 function compressImage(dataUrl) {
   return new Promise((resolve) => {
     const img = new Image();
@@ -14,15 +14,20 @@ function compressImage(dataUrl) {
       let { width, height } = img;
       const origW = width, origH = height;
 
+      if (width <= MAX_IMAGE_DIM && height <= MAX_IMAGE_DIM) {
+        // 尺寸在范围内，不压缩
+        console.log(`[compress] ${origW}x${origH} 无需压缩`);
+        resolve(dataUrl);
+        return;
+      }
+
       // 等比缩放
-      if (width > MAX_IMAGE_DIM || height > MAX_IMAGE_DIM) {
-        if (width > height) {
-          height = Math.round(height * MAX_IMAGE_DIM / width);
-          width = MAX_IMAGE_DIM;
-        } else {
-          width = Math.round(width * MAX_IMAGE_DIM / height);
-          height = MAX_IMAGE_DIM;
-        }
+      if (width > height) {
+        height = Math.round(height * MAX_IMAGE_DIM / width);
+        width = MAX_IMAGE_DIM;
+      } else {
+        width = Math.round(width * MAX_IMAGE_DIM / height);
+        height = MAX_IMAGE_DIM;
       }
 
       const canvas = document.createElement('canvas');
@@ -30,7 +35,7 @@ function compressImage(dataUrl) {
       canvas.height = height;
       const ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0, width, height);
-      const result = canvas.toDataURL('image/jpeg', 0.75);
+      const result = canvas.toDataURL('image/jpeg', 0.90);
 
       const origMB = (dataUrl.length / 1024 / 1024).toFixed(1);
       const newMB = (result.length / 1024 / 1024).toFixed(1);
@@ -39,6 +44,20 @@ function compressImage(dataUrl) {
     };
     img.src = dataUrl;
   });
+}
+
+// ============ Image Upload to CDN ============
+async function uploadToCDN(dataUrl, name) {
+  const resp = await fetch('/api/upload', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ image: dataUrl, name }),
+  });
+  const data = await resp.json();
+  if (!resp.ok || !data.success) {
+    throw new Error(data.error || `上传失败: HTTP ${resp.status}`);
+  }
+  return data.url;
 }
 
 // ============ Base Image ============
@@ -146,13 +165,54 @@ async function enhance() {
 
   const btn = document.getElementById('enhanceBtn');
   btn.disabled = true;
-  btn.innerHTML = '<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg> 生成中...';
 
   const outputSection = document.getElementById('outputSection');
   const outputContent = document.getElementById('outputContent');
   outputSection.classList.remove('hidden');
   outputContent.textContent = '';
   outputContent.classList.add('streaming-cursor');
+
+  const resetBtn = () => {
+    btn.disabled = false;
+    btn.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/></svg> 生成 Enhanced Prompt';
+  };
+
+  // Step 1: 上传图片到 CDN
+  const imageCount = (baseImageData ? 1 : 0) + references.length;
+  let baseImageUrl = null;
+  const refUrls = [];
+
+  if (imageCount > 0) {
+    btn.innerHTML = '<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg> 上传图片中...';
+    outputContent.textContent = `正在上传 ${imageCount} 张图片到 CDN...\n`;
+
+    try {
+      if (baseImageData) {
+        outputContent.textContent += '上传基础图...';
+        baseImageUrl = await uploadToCDN(baseImageData, 'base');
+        outputContent.textContent += ' ✓\n';
+        console.log('[upload] base image:', baseImageUrl);
+      }
+
+      for (let i = 0; i < references.length; i++) {
+        outputContent.textContent += `上传参考图 ${i + 1}...`;
+        const url = await uploadToCDN(references[i].image, `ref_${i + 1}`);
+        refUrls.push(url);
+        outputContent.textContent += ' ✓\n';
+        console.log(`[upload] ref ${i + 1}:`, url);
+      }
+
+      outputContent.textContent += '图片上传完成，正在生成 Prompt...\n\n';
+    } catch (err) {
+      outputContent.textContent += `\n\n[图片上传失败: ${err.message}]`;
+      outputContent.classList.remove('streaming-cursor');
+      resetBtn();
+      return;
+    }
+  }
+
+  // Step 2: 发送 enhance 请求（只传 URL，不传 base64）
+  btn.innerHTML = '<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg> 生成中...';
 
   const params = {
     sceneType: document.getElementById('sceneType').value,
@@ -164,25 +224,18 @@ async function enhance() {
   const body = {
     intent,
     params,
-    baseImage: baseImageData || null,
-    references: references.map(r => ({
-      image: r.image,
+    baseImageUrl: baseImageUrl || null,
+    references: references.map((r, i) => ({
+      imageUrl: refUrls[i] || null,
       focuses: r.focuses,
     })),
   };
 
-  // 检查 payload 大小（Vercel Hobby 限制 4.5MB）
-  const payloadStr = JSON.stringify(body);
-  const payloadMB = (payloadStr.length / 1024 / 1024).toFixed(1);
-  console.log(`[enhance] sending request, payload=${payloadMB}MB, images=${(baseImageData ? 1 : 0) + references.length}`);
+  const payloadKB = (JSON.stringify(body).length / 1024).toFixed(0);
+  console.log(`[enhance] sending request, payload=${payloadKB}KB (URLs only)`);
 
-  if (parseFloat(payloadMB) > MAX_PAYLOAD_MB) {
-    outputContent.textContent = `[请求体过大: ${payloadMB}MB，超出 ${MAX_PAYLOAD_MB}MB 限制]\n请减少图片数量或使用更小的图片。`;
-    outputContent.classList.remove('streaming-cursor');
-    btn.disabled = false;
-    btn.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/></svg> 生成 Enhanced Prompt';
-    return;
-  }
+  // 清除上传进度，只保留 prompt 输出
+  outputContent.textContent = '';
 
   try {
     const resp = await fetch('/api/enhance', {
@@ -239,8 +292,7 @@ async function enhance() {
     console.error('[enhance] fetch error:', err);
   } finally {
     outputContent.classList.remove('streaming-cursor');
-    btn.disabled = false;
-    btn.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/></svg> 生成 Enhanced Prompt';
+    resetBtn();
   }
 }
 
