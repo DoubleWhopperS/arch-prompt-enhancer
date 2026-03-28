@@ -134,18 +134,18 @@ function toggleFocus(refIndex, focus) {
 function renderRefList() {
   const container = document.getElementById('refList');
   container.innerHTML = references.map((ref, i) => `
-    <div class="ref-card bg-gray-50 rounded-lg p-3 border border-gray-100 fade-in">
+    <div class="ref-card bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 border border-gray-100 dark:border-gray-600 fade-in">
       <div class="flex gap-3">
         <img src="${ref.image}" class="w-20 h-20 object-cover rounded-md flex-shrink-0" />
         <div class="flex-1 min-w-0">
           <div class="flex items-center justify-between mb-2">
-            <span class="text-xs text-gray-500 font-medium">参考图 ${i + 1}</span>
+            <span class="text-xs text-gray-500 dark:text-gray-400 font-medium">参考图 ${i + 1}</span>
             <button onclick="removeRef(${i})" class="text-xs text-red-400 hover:text-red-600">移除</button>
           </div>
-          <p class="text-xs text-gray-400 mb-1.5">从这张图学习：</p>
+          <p class="text-xs text-gray-400 dark:text-gray-500 mb-1.5">从这张图学习：</p>
           <div class="flex flex-wrap gap-1.5">
             ${FOCUS_OPTIONS.map(f => `
-              <span class="focus-tag text-xs px-2 py-0.5 rounded-full border border-gray-300 ${ref.focuses.includes(f) ? 'active' : 'text-gray-600'}"
+              <span class="focus-tag text-xs px-2 py-0.5 rounded-full border border-gray-300 dark:border-gray-500 ${ref.focuses.includes(f) ? 'active' : 'text-gray-600 dark:text-gray-300'}"
                     onclick="toggleFocus(${i}, '${f}')">${f}</span>
             `).join('')}
           </div>
