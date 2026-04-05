@@ -1,0 +1,230 @@
+/**
+ * 图片生成端点：TAMS API 集成
+ * 支持 Gemini (genai) 和 Seedream (volcano) 模型
+ * SSE 流式返回生成进度和结果
+ */
+
+const { uploadBase64ToCDN, downloadAndUploadToCDN } = require('../lib/cdn');
+
+const TAMS_BASE = 'https://cn.tensorart.net';
+
+const MODEL_MAP = {
+  'nano-banana-pro': { id: 'google/gemini-3-pro-image-preview', provider: 'genai', name: 'Nano Banana Pro' },
+  'nano-banana2': { id: 'google/gemini-3.1-flash-image-preview', provider: 'genai', name: 'Nano Banana 2' },
+  'seedream-5-lite': { id: 'doubao-seedream-5.0-lite', provider: 'volcano', name: 'Seedream 5 Lite' },
+};
+
+// Seedream 使用 "WxH" 格式的分辨率
+const SEEDREAM_SIZES = {
+  '1:1':  { '1K': '1024x1024', '2K': '2048x2048', '4K': '4096x4096' },
+  '4:3':  { '1K': '1024x768',  '2K': '2048x1536', '4K': '4096x3072' },
+  '3:4':  { '1K': '768x1024',  '2K': '1536x2048', '4K': '3072x4096' },
+  '3:2':  { '1K': '1024x682',  '2K': '2048x1366', '4K': '4096x2730' },
+  '2:3':  { '1K': '682x1024',  '2K': '1366x2048', '4K': '2730x4096' },
+  '16:9': { '1K': '1024x576',  '2K': '2048x1152', '4K': '4096x2304' },
+  '9:16': { '1K': '576x1024',  '2K': '1152x2048', '4K': '2304x4096' },
+};
+
+function sendSSE(res, data) {
+  res.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+function tamsHeaders(token) {
+  return { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
+}
+
+// ─── Gemini (genai) ───
+
+async function createGeminiTask(token, modelId, prompt, baseImageUrl, imageConfig) {
+  const parts = [];
+  if (baseImageUrl) {
+    const mime = /\.png$/i.test(baseImageUrl) ? 'image/png' : 'image/jpeg';
+    parts.push({ fileData: { mimeType: mime, fileUri: baseImageUrl } });
+  }
+  parts.push({ text: prompt });
+
+  const resp = await fetch(`${TAMS_BASE}/v2/gcp/genai/models/generate-content/async/create`, {
+    method: 'POST',
+    headers: tamsHeaders(token),
+    body: JSON.stringify({
+      model: modelId,
+      contents: [{ role: 'user', parts }],
+      config: { responseModalities: ['TEXT', 'IMAGE'], imageConfig },
+    }),
+    signal: AbortSignal.timeout(30000),
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '');
+    throw new Error(`Gemini create failed: HTTP ${resp.status} — ${text.slice(0, 200)}`);
+  }
+  return (await resp.json()).request_id;
+}
+
+// ─── Volcano (Seedream) ───
+
+async function createVolcanoTask(token, modelId, prompt, baseImageUrl, size) {
+  const body = { model: modelId, prompt };
+  if (baseImageUrl) body.image = baseImageUrl;
+  if (size) body.size = size;
+
+  const resp = await fetch(`${TAMS_BASE}/v2/gcp/volcano/images/generations/async/create`, {
+    method: 'POST',
+    headers: tamsHeaders(token),
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(30000),
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '');
+    throw new Error(`Volcano create failed: HTTP ${resp.status} — ${text.slice(0, 200)}`);
+  }
+  return (await resp.json()).request_id;
+}
+
+// ─── 轮询 ───
+
+async function pollResult(token, provider, requestId) {
+  const endpoint = provider === 'genai'
+    ? `${TAMS_BASE}/v2/gcp/genai/models/generate-content/async/get`
+    : `${TAMS_BASE}/v2/gcp/volcano/images/generations/async/get`;
+
+  const interval = 3000;
+  const maxAttempts = 60; // 3min max
+
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise(r => setTimeout(r, interval));
+
+    try {
+      const resp = await fetch(endpoint, {
+        method: 'POST',
+        headers: tamsHeaders(token),
+        body: JSON.stringify({ request_id: requestId }),
+        signal: AbortSignal.timeout(10000),
+      });
+
+      const data = await resp.json();
+      const status = data.status || '';
+
+      if (status === 'COMPLETED') return { success: true, data };
+      if (status === 'FAILED' || status === 'CANCELLED') {
+        return { success: false, error: data.err_message || data.message || 'Generation failed' };
+      }
+    } catch (e) {
+      if (e.name === 'AbortError') continue; // timeout, retry
+      throw e;
+    }
+  }
+  return { success: false, error: 'Timeout: 3 minutes exceeded' };
+}
+
+// ─── 提取图片 ───
+
+function extractImage(provider, data) {
+  if (provider === 'volcano') {
+    const items = data?.response?.data;
+    if (items?.[0]?.url) return { type: 'url', value: items[0].url };
+  } else {
+    const parts = data?.response?.candidates?.[0]?.content?.parts || [];
+    for (const part of parts) {
+      if (part.fileData?.fileUri) return { type: 'url', value: part.fileData.fileUri };
+      if (part.inlineData?.data) return { type: 'base64', value: part.inlineData.data, mime: part.inlineData.mimeType || 'image/png' };
+    }
+  }
+  return null;
+}
+
+// ─── Handler ───
+
+module.exports = async function handler(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  const { prompt, model: modelKey, baseImageUrl, aspectRatio, imageSize, count } = req.body;
+
+  if (!prompt) return res.status(400).json({ error: '缺少 prompt' });
+
+  const tamsToken = process.env.TAMS_TOKEN || process.env.TAMS_API_TOKEN;
+  if (!tamsToken) return res.status(500).json({ error: 'TAMS_TOKEN 未配置，请在 .env 中设置' });
+
+  const modelInfo = MODEL_MAP[modelKey || 'nano-banana-pro'];
+  if (!modelInfo) return res.status(400).json({ error: `未知模型: ${modelKey}` });
+
+  const imageCount = Math.min(Math.max(parseInt(count) || 2, 1), 4);
+  const ratio = aspectRatio || '4:3';
+  const size = imageSize || '2K';
+
+  // SSE
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  sendSSE(res, { type: 'info', model: modelInfo.name, count: imageCount });
+  console.log(`[generate] model=${modelInfo.name} count=${imageCount} ratio=${ratio} size=${size}`);
+
+  const cdnToken = process.env.TENSORART_BEARER_TOKEN;
+
+  for (let i = 0; i < imageCount; i++) {
+    const label = `${i + 1}/${imageCount}`;
+    sendSSE(res, { type: 'progress', message: `Creating task ${label}...`, index: i, total: imageCount });
+
+    try {
+      // 1. Create task
+      let requestId;
+      if (modelInfo.provider === 'genai') {
+        const imageConfig = { aspectRatio: ratio, imageSize: size };
+        requestId = await createGeminiTask(tamsToken, modelInfo.id, prompt, baseImageUrl, imageConfig);
+      } else {
+        const sizeStr = SEEDREAM_SIZES[ratio]?.[size] || '2048x1536';
+        requestId = await createVolcanoTask(tamsToken, modelInfo.id, prompt, baseImageUrl, sizeStr);
+      }
+
+      sendSSE(res, { type: 'progress', message: `Generating ${label}...`, index: i, total: imageCount });
+
+      // 2. Poll
+      const result = await pollResult(tamsToken, modelInfo.provider, requestId);
+      if (!result.success) {
+        sendSSE(res, { type: 'error', message: result.error, index: i });
+        continue;
+      }
+
+      // 3. Extract image
+      const imageResult = extractImage(modelInfo.provider, result.data);
+      if (!imageResult) {
+        sendSSE(res, { type: 'error', message: 'No image data in response', index: i });
+        continue;
+      }
+
+      // 4. Upload to CDN
+      let finalUrl;
+      try {
+        sendSSE(res, { type: 'progress', message: `Uploading ${label} to CDN...`, index: i, total: imageCount });
+
+        if (imageResult.type === 'base64') {
+          finalUrl = await uploadBase64ToCDN(imageResult.value, imageResult.mime, cdnToken);
+        } else {
+          finalUrl = await downloadAndUploadToCDN(imageResult.value, cdnToken);
+        }
+      } catch (uploadErr) {
+        // CDN 上传失败，降级使用原始 URL
+        console.warn(`[generate] CDN upload failed for ${label}: ${uploadErr.message}`);
+        finalUrl = imageResult.type === 'url'
+          ? imageResult.value
+          : `data:${imageResult.mime};base64,${imageResult.value}`;
+      }
+
+      sendSSE(res, { type: 'image', url: finalUrl, index: i });
+      console.log(`[generate] ${label} done: ${finalUrl.slice(0, 80)}...`);
+
+    } catch (err) {
+      console.error(`[generate] ${label} error:`, err.message);
+      sendSSE(res, { type: 'error', message: err.message, index: i });
+    }
+
+    // 间隔 1s 防止 rate limit
+    if (i < imageCount - 1) await new Promise(r => setTimeout(r, 1000));
+  }
+
+  sendSSE(res, { type: 'done' });
+  res.end();
+};
