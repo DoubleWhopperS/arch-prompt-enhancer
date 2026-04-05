@@ -255,15 +255,23 @@ async function enhance() {
       intent,
       params,
       baseImageUrl: baseImageUrl || null,
-      references: references.map((r, i) => ({ imageUrl: refUrls[i] || null, focuses: r.focuses })),
+      references: references.map((r, i) => ({
+        imageUrl: refUrls[i] || null,
+        focuses: r.focuses,
+      })),
     };
 
+    // Clear upload logs before streaming prompt
+    output.value = '';
+
     // SSE stream
+    console.log('[enhance] sending request, baseImageUrl:', baseImageUrl);
     const resp = await fetch('/api/enhance', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
+    console.log('[enhance] response status:', resp.status, resp.headers.get('content-type'));
 
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();

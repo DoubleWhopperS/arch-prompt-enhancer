@@ -160,7 +160,7 @@ module.exports = async function handler(req, res) {
 
   const apiKey = process.env.TUZI_API_KEY;
   const baseURL = process.env.TUZI_BASE_URL || 'https://llm.ai-nebula.com/v1';
-  const model = process.env.MODEL || 'claude-opus-4-6';
+  const model = process.env.ENHANCE_MODEL || 'claude-sonnet-4-6';
 
   if (!apiKey) {
     return res.status(500).json({ error: 'API Key 未配置' });
@@ -169,7 +169,7 @@ module.exports = async function handler(req, res) {
   const client = new OpenAI({
     apiKey,
     baseURL,
-    timeout: 90000, // 90s timeout
+    timeout: 120000, // 120s timeout
   });
   const userContent = buildUserContent({ intent, params, baseImage, baseImageUrl, references });
 
