@@ -2,6 +2,8 @@
  * 图片生成端点：TAMS API 集成
  * 支持 Gemini (genai) 和 Seedream (volcano) 模型
  * SSE 流式返回生成进度和结果
+ *
+ * v2: 并行创建+轮询+上传，避免串行超时
  */
 
 const { uploadBase64ToCDN, downloadAndUploadToCDN } = require('../lib/cdn');
@@ -14,7 +16,6 @@ const MODEL_MAP = {
   'seedream-5-lite': { id: 'doubao-seedream-5.0-lite', provider: 'volcano', name: 'Seedream 5 Lite' },
 };
 
-// Seedream 使用 "WxH" 格式的分辨率
 const SEEDREAM_SIZES = {
   '1:1':  { '1K': '1024x1024', '2K': '2048x2048', '4K': '4096x4096' },
   '4:3':  { '1K': '1024x768',  '2K': '2048x1536', '4K': '4096x3072' },
@@ -84,7 +85,7 @@ async function createVolcanoTask(token, modelId, prompt, baseImageUrl, size) {
 
 // ─── 轮询 ───
 
-async function pollResult(token, provider, requestId) {
+async function pollResult(token, provider, requestId, onProgress) {
   const endpoint = provider === 'genai'
     ? `${TAMS_BASE}/v2/gcp/genai/models/generate-content/async/get`
     : `${TAMS_BASE}/v2/gcp/volcano/images/generations/async/get`;
@@ -110,8 +111,9 @@ async function pollResult(token, provider, requestId) {
       if (status === 'FAILED' || status === 'CANCELLED') {
         return { success: false, error: data.err_message || data.message || 'Generation failed' };
       }
+      if (onProgress) onProgress(status, i);
     } catch (e) {
-      if (e.name === 'AbortError') continue; // timeout, retry
+      if (e.name === 'AbortError') continue;
       throw e;
     }
   }
@@ -134,6 +136,66 @@ function extractImage(provider, data) {
   return null;
 }
 
+// ─── 单张图片完整流程 ───
+
+async function processOneImage({ index, total, tamsToken, cdnToken, modelInfo, prompt, baseImageUrl, ratio, size, res }) {
+  const label = `${index + 1}/${total}`;
+
+  try {
+    // 1. Create task
+    sendSSE(res, { type: 'progress', message: `Creating task ${label}...`, index });
+    let requestId;
+    if (modelInfo.provider === 'genai') {
+      requestId = await createGeminiTask(tamsToken, modelInfo.id, prompt, baseImageUrl, { aspectRatio: ratio, imageSize: size });
+    } else {
+      const sizeStr = SEEDREAM_SIZES[ratio]?.[size] || '2048x1536';
+      requestId = await createVolcanoTask(tamsToken, modelInfo.id, prompt, baseImageUrl, sizeStr);
+    }
+
+    // 2. Poll
+    sendSSE(res, { type: 'progress', message: `Generating ${label}...`, index });
+    const result = await pollResult(tamsToken, modelInfo.provider, requestId, (status, attempt) => {
+      if (attempt % 3 === 0) { // throttle progress updates
+        sendSSE(res, { type: 'progress', message: `Generating ${label} (${Math.round(attempt * 3)}s)...`, index });
+      }
+    });
+
+    if (!result.success) {
+      sendSSE(res, { type: 'error', message: result.error, index });
+      return;
+    }
+
+    // 3. Extract image
+    const imageResult = extractImage(modelInfo.provider, result.data);
+    if (!imageResult) {
+      sendSSE(res, { type: 'error', message: 'No image data in response', index });
+      return;
+    }
+
+    // 4. Upload to CDN
+    let finalUrl;
+    try {
+      sendSSE(res, { type: 'progress', message: `Uploading ${label} to CDN...`, index });
+      if (imageResult.type === 'base64') {
+        finalUrl = await uploadBase64ToCDN(imageResult.value, imageResult.mime, cdnToken);
+      } else {
+        finalUrl = await downloadAndUploadToCDN(imageResult.value, cdnToken);
+      }
+    } catch (uploadErr) {
+      console.warn(`[generate] CDN upload failed for ${label}: ${uploadErr.message}`);
+      finalUrl = imageResult.type === 'url'
+        ? imageResult.value
+        : `data:${imageResult.mime};base64,${imageResult.value}`;
+    }
+
+    sendSSE(res, { type: 'image', url: finalUrl, index });
+    console.log(`[generate] ${label} done: ${finalUrl.slice(0, 80)}...`);
+  } catch (err) {
+    console.error(`[generate] ${label} error:`, err.message);
+    sendSSE(res, { type: 'error', message: err.message, index });
+  }
+}
+
 // ─── Handler ───
 
 module.exports = async function handler(req, res) {
@@ -149,7 +211,7 @@ module.exports = async function handler(req, res) {
   const modelInfo = MODEL_MAP[modelKey || 'nano-banana-pro'];
   if (!modelInfo) return res.status(400).json({ error: `未知模型: ${modelKey}` });
 
-  const imageCount = Math.min(Math.max(parseInt(count) || 2, 1), 4);
+  const imageCount = Math.min(Math.max(parseInt(count, 10) || 2, 1), 4);
   const ratio = aspectRatio || '4:3';
   const size = imageSize || '2K';
 
@@ -160,70 +222,17 @@ module.exports = async function handler(req, res) {
   res.flushHeaders?.();
 
   sendSSE(res, { type: 'info', model: modelInfo.name, count: imageCount });
-  console.log(`[generate] model=${modelInfo.name} count=${imageCount} ratio=${ratio} size=${size}`);
+  console.log(`[generate] model=${modelInfo.name} count=${imageCount} ratio=${ratio} size=${size} mode=parallel`);
 
   const cdnToken = process.env.TENSORART_BEARER_TOKEN;
+  const shared = { tamsToken, cdnToken, modelInfo, prompt, baseImageUrl, ratio, size, res, total: imageCount };
 
+  // Run all images in parallel
+  const tasks = [];
   for (let i = 0; i < imageCount; i++) {
-    const label = `${i + 1}/${imageCount}`;
-    sendSSE(res, { type: 'progress', message: `Creating task ${label}...`, index: i, total: imageCount });
-
-    try {
-      // 1. Create task
-      let requestId;
-      if (modelInfo.provider === 'genai') {
-        const imageConfig = { aspectRatio: ratio, imageSize: size };
-        requestId = await createGeminiTask(tamsToken, modelInfo.id, prompt, baseImageUrl, imageConfig);
-      } else {
-        const sizeStr = SEEDREAM_SIZES[ratio]?.[size] || '2048x1536';
-        requestId = await createVolcanoTask(tamsToken, modelInfo.id, prompt, baseImageUrl, sizeStr);
-      }
-
-      sendSSE(res, { type: 'progress', message: `Generating ${label}...`, index: i, total: imageCount });
-
-      // 2. Poll
-      const result = await pollResult(tamsToken, modelInfo.provider, requestId);
-      if (!result.success) {
-        sendSSE(res, { type: 'error', message: result.error, index: i });
-        continue;
-      }
-
-      // 3. Extract image
-      const imageResult = extractImage(modelInfo.provider, result.data);
-      if (!imageResult) {
-        sendSSE(res, { type: 'error', message: 'No image data in response', index: i });
-        continue;
-      }
-
-      // 4. Upload to CDN
-      let finalUrl;
-      try {
-        sendSSE(res, { type: 'progress', message: `Uploading ${label} to CDN...`, index: i, total: imageCount });
-
-        if (imageResult.type === 'base64') {
-          finalUrl = await uploadBase64ToCDN(imageResult.value, imageResult.mime, cdnToken);
-        } else {
-          finalUrl = await downloadAndUploadToCDN(imageResult.value, cdnToken);
-        }
-      } catch (uploadErr) {
-        // CDN 上传失败，降级使用原始 URL
-        console.warn(`[generate] CDN upload failed for ${label}: ${uploadErr.message}`);
-        finalUrl = imageResult.type === 'url'
-          ? imageResult.value
-          : `data:${imageResult.mime};base64,${imageResult.value}`;
-      }
-
-      sendSSE(res, { type: 'image', url: finalUrl, index: i });
-      console.log(`[generate] ${label} done: ${finalUrl.slice(0, 80)}...`);
-
-    } catch (err) {
-      console.error(`[generate] ${label} error:`, err.message);
-      sendSSE(res, { type: 'error', message: err.message, index: i });
-    }
-
-    // 间隔 1s 防止 rate limit
-    if (i < imageCount - 1) await new Promise(r => setTimeout(r, 1000));
+    tasks.push(processOneImage({ ...shared, index: i }));
   }
+  await Promise.allSettled(tasks);
 
   sendSSE(res, { type: 'done' });
   res.end();
