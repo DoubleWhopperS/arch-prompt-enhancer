@@ -405,7 +405,7 @@ async function generateImages() {
           } else if (data.type === 'image' && generatedImages[idx]) {
             generatedImages[idx] = { url: data.url, status: 'done', message: '' };
             renderGallery();
-            // Save to library
+            // Save to library with temp URL (will be updated by image_updated)
             saveToLibrary({
               url: data.url,
               prompt,
@@ -414,6 +414,12 @@ async function generateImages() {
               ratio: aspectRatio,
               size: sizeValue,
             });
+          } else if (data.type === 'image_updated' && generatedImages[idx]) {
+            // CDN upload complete — update URL in gallery and library
+            const oldUrl = generatedImages[idx].url;
+            generatedImages[idx].url = data.url;
+            renderGallery();
+            updateLibraryUrl(oldUrl, data.url);
           } else if (data.type === 'error' && generatedImages[idx]) {
             generatedImages[idx] = { url: null, status: 'error', message: data.message };
             renderGallery();
@@ -632,6 +638,15 @@ function saveToLibrary({ url, prompt, baseImageUrl, model, ratio, size }) {
     createdAt: new Date().toISOString(),
   });
   setLibrary(items);
+}
+
+function updateLibraryUrl(oldUrl, newUrl) {
+  const items = getLibrary();
+  const item = items.find(i => i.url === oldUrl);
+  if (item) {
+    item.url = newUrl;
+    setLibrary(items);
+  }
 }
 
 function deleteFromLibrary(ids) {
