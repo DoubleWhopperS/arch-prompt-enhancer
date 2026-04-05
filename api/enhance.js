@@ -179,8 +179,8 @@ module.exports = async function handler(req, res) {
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders?.();
 
-  // 发送诊断信息，让前端知道连接已建立
-  res.write(`data: ${JSON.stringify({ debug: `API: ${baseURL}, model: ${model}` })}\n\n`);
+  // 连接已建立信号（不泄露内部配置）
+  res.write(`data: ${JSON.stringify({ connected: true })}\n\n`);
 
   try {
     const stream = await client.chat.completions.create({
