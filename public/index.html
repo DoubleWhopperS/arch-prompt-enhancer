@@ -18,6 +18,17 @@
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap');
     body { font-family: 'Noto Sans SC', 'Inter', sans-serif; }
 
+    /* Nav tabs */
+    .nav-tab { position: relative; padding: 8px 0; font-size: 14px; font-weight: 500; color: #9ca3af; transition: color 0.2s; cursor: pointer; }
+    .nav-tab:hover { color: #6b7280; }
+    .nav-tab.active { color: #4f46e5; }
+    .nav-tab.active::after { content: ''; position: absolute; bottom: -1px; left: 0; right: 0; height: 2px; background: #4f46e5; border-radius: 1px; }
+    @media (prefers-color-scheme: dark) {
+      .nav-tab:hover { color: #d1d5db; }
+      .nav-tab.active { color: #818cf8; }
+      .nav-tab.active::after { background: #818cf8; }
+    }
+
     /* Drop zones */
     .drop-zone { transition: all 0.2s; }
     .drop-zone:hover, .drop-zone.dragover {
@@ -40,7 +51,7 @@
     .streaming::after { content: '\2588'; animation: blink 0.7s infinite; color: #6366f1; }
     @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:0; } }
 
-    /* Gallery */
+    /* Gallery card (generate view) */
     .img-card { position: relative; overflow: hidden; border-radius: 8px; cursor: pointer; }
     .img-card img { transition: transform 0.3s; }
     .img-card:hover img { transform: scale(1.03); }
@@ -63,6 +74,30 @@
     .count-btn { width: 36px; height: 36px; border-radius: 8px; font-weight: 600; transition: all 0.15s; }
     .count-btn.active { background: #6366f1; color: white; }
 
+    /* Masonry / waterfall */
+    .masonry { column-count: 4; column-gap: 12px; }
+    @media (max-width: 1024px) { .masonry { column-count: 3; } }
+    @media (max-width: 768px) { .masonry { column-count: 2; } }
+    @media (max-width: 480px) { .masonry { column-count: 1; } }
+    .masonry-item { break-inside: avoid; margin-bottom: 12px; }
+
+    /* Gallery card (library view) */
+    .lib-card { position: relative; overflow: hidden; border-radius: 8px; cursor: pointer; background: #f3f4f6; }
+    @media (prefers-color-scheme: dark) { .lib-card { background: #1f2937; } }
+    .lib-card img { width: 100%; display: block; transition: transform 0.3s; }
+    .lib-card:hover img { transform: scale(1.03); }
+    .lib-card .lib-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.4); opacity: 0; transition: opacity 0.2s; display: flex; align-items: flex-end; padding: 8px; }
+    .lib-card:hover .lib-overlay { opacity: 1; }
+
+    /* Batch mode checkbox */
+    .batch-check { position: absolute; top: 8px; left: 8px; z-index: 5; width: 22px; height: 22px; border-radius: 6px; border: 2px solid rgba(255,255,255,0.7); background: rgba(0,0,0,0.3); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.15s; }
+    .batch-check.checked { background: #4f46e5; border-color: #4f46e5; }
+    .batch-check svg { display: none; }
+    .batch-check.checked svg { display: block; }
+    .batch-mode .batch-check { opacity: 1; }
+    .batch-check { opacity: 0; }
+    .lib-card:hover .batch-check { opacity: 1; }
+
     /* Scrollbar */
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
@@ -71,218 +106,329 @@
 </head>
 <body class="bg-gray-50 dark:bg-gray-950 min-h-screen text-gray-900 dark:text-gray-100">
 
-  <!-- Header -->
+  <!-- Header with Navigation -->
   <header class="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-50">
-    <div class="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between">
-      <div>
-        <h1 class="text-lg font-bold">建筑效果图工作台</h1>
-        <p class="text-xs text-gray-400 dark:text-gray-500">Prompt Enhancement + Image Generation</p>
-      </div>
-      <div class="flex items-center gap-3">
+    <div class="max-w-6xl mx-auto px-6">
+      <div class="flex items-center justify-between h-14">
+        <div class="flex items-center gap-8">
+          <h1 class="text-lg font-bold whitespace-nowrap">建筑效果图工作台</h1>
+          <nav class="flex gap-6 border-b border-transparent -mb-px">
+            <button class="nav-tab active" data-view="generate" onclick="switchView('generate')">
+              <span class="flex items-center gap-1.5">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/></svg>
+                生图
+              </span>
+            </button>
+            <button class="nav-tab" data-view="library" onclick="switchView('library')">
+              <span class="flex items-center gap-1.5">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                图库
+                <span id="libCount" class="text-xs bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 px-1.5 py-0.5 rounded-full tabular-nums" style="display:none">0</span>
+              </span>
+            </button>
+          </nav>
+        </div>
         <span id="envStatus" class="text-xs text-gray-400"></span>
       </div>
     </div>
   </header>
 
-  <main class="max-w-5xl mx-auto px-6 py-6 space-y-5">
+  <!-- ══════════════════════════════════════════════════ -->
+  <!-- View: Generate (生图)                              -->
+  <!-- ══════════════════════════════════════════════════ -->
+  <div id="viewGenerate">
+    <main class="max-w-5xl mx-auto px-6 py-6 space-y-5">
 
-    <!-- ═══ Phase 1: Input ═══ -->
-    <section id="inputPhase" class="phase visible">
-      <div class="grid grid-cols-1 md:grid-cols-5 gap-5">
-
-        <!-- Left: Base Image -->
-        <div class="md:col-span-2">
-          <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5 h-full">
-            <h2 class="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-3">基础图</h2>
-            <div id="baseDropZone" class="drop-zone border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-6 text-center cursor-pointer min-h-[180px] flex items-center justify-center">
-              <div id="basePlaceholder" class="space-y-2">
-                <svg class="mx-auto h-10 w-10 text-gray-300 dark:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
-                <p class="text-sm text-gray-400">拖拽或点击上传草图/渲染图</p>
-              </div>
-              <div id="basePreview" class="hidden relative">
-                <img id="baseImg" class="max-h-[200px] rounded-md mx-auto" />
-                <button onclick="removeBaseImage(event)" class="absolute top-1 right-1 bg-black/50 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs hover:bg-black/70">&times;</button>
-              </div>
-              <input type="file" id="baseInput" accept="image/*" class="hidden" />
-            </div>
-          </div>
-        </div>
-
-        <!-- Right: Intent + Params -->
-        <div class="md:col-span-3 space-y-4">
-          <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5">
-            <h2 class="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-3">设计意图</h2>
-            <textarea id="intent" rows="4" placeholder="用自然语言描述你想要的效果...&#10;例如：阴雨天，湿润地面有倒影，前景加一些学生撑伞，建筑周围补充绿化和停车"
-              class="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-3 text-sm resize-none focus:ring-2 focus:ring-brand-500 focus:border-transparent placeholder:text-gray-400 dark:placeholder:text-gray-600"></textarea>
-          </div>
-
-          <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5">
-            <div class="grid grid-cols-2 gap-3">
-              <div>
-                <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">场景类型</label>
-                <select id="sceneType" class="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
-                  <option value="">自动判断</option>
-                  <option value="鸟瞰日景">鸟瞰日景</option><option value="鸟瞰黄昏">鸟瞰黄昏</option>
-                  <option value="半鸟瞰">半鸟瞰 (45deg)</option>
-                  <option value="人视日景">人视日景</option><option value="人视黄昏">人视黄昏</option><option value="人视夜景">人视夜景</option>
-                  <option value="室内">室内</option><option value="水景">水景/滨水</option>
-                </select>
-              </div>
-              <div>
-                <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">时间天气</label>
-                <select id="timeWeather" class="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
-                  <option value="">自动判断</option>
-                  <option value="晴天日光">晴天日光</option><option value="阴天漫射">阴天漫射</option>
-                  <option value="清晨薄雾">清晨薄雾</option><option value="黄金时刻">黄金时刻</option>
-                  <option value="蓝调时刻">蓝调时刻</option><option value="阴雨">阴雨</option>
-                  <option value="深夜">深夜</option><option value="雪后初霁">雪后初霁</option>
-                </select>
+      <!-- Phase 1: Input -->
+      <section id="inputPhase" class="phase visible">
+        <div class="grid grid-cols-1 md:grid-cols-5 gap-5">
+          <!-- Left: Base Image -->
+          <div class="md:col-span-2">
+            <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5 h-full">
+              <h2 class="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-3">基础图</h2>
+              <div id="baseDropZone" class="drop-zone border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-6 text-center cursor-pointer min-h-[180px] flex items-center justify-center">
+                <div id="basePlaceholder" class="space-y-2">
+                  <svg class="mx-auto h-10 w-10 text-gray-300 dark:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                  <p class="text-sm text-gray-400">拖拽或点击上传草图/渲染图</p>
+                </div>
+                <div id="basePreview" class="hidden relative">
+                  <img id="baseImg" class="max-h-[200px] rounded-md mx-auto" />
+                  <button onclick="removeBaseImage(event)" class="absolute top-1 right-1 bg-black/50 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs hover:bg-black/70">&times;</button>
+                </div>
+                <input type="file" id="baseInput" accept="image/*" class="hidden" />
               </div>
             </div>
+          </div>
 
-            <!-- Advanced settings (collapsed) -->
-            <details class="mt-3">
-              <summary class="text-xs text-gray-400 cursor-pointer hover:text-gray-600">更多设置</summary>
-              <div class="grid grid-cols-2 gap-3 mt-3">
+          <!-- Right: Intent + Params -->
+          <div class="md:col-span-3 space-y-4">
+            <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5">
+              <h2 class="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-3">设计意图</h2>
+              <textarea id="intent" rows="4" placeholder="用自然语言描述你想要的效果...&#10;例如：阴雨天，湿润地面有倒影，前景加一些学生撑伞，建筑周围补充绿化和停车"
+                class="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-3 text-sm resize-none focus:ring-2 focus:ring-brand-500 focus:border-transparent placeholder:text-gray-400 dark:placeholder:text-gray-600"></textarea>
+            </div>
+
+            <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5">
+              <div class="grid grid-cols-2 gap-3">
                 <div>
-                  <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">建筑风格</label>
-                  <select id="buildingStyle" class="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
-                    <option value="">不限定</option>
-                    <option value="极简主义">极简主义</option><option value="参数化">参数化</option>
-                    <option value="日式 (隈研吾)">日式 (隈研吾)</option><option value="北欧 (Snohetta)">北欧</option>
-                    <option value="David Chipperfield">David Chipperfield</option>
-                    <option value="Peter Zumthor">Peter Zumthor</option>
+                  <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">场景类型</label>
+                  <select id="sceneType" class="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
+                    <option value="">自动判断</option>
+                    <option value="鸟瞰日景">鸟瞰日景</option><option value="鸟瞰黄昏">鸟瞰黄昏</option>
+                    <option value="半鸟瞰">半鸟瞰 (45deg)</option>
+                    <option value="人视日景">人视日景</option><option value="人视黄昏">人视黄昏</option><option value="人视夜景">人视夜景</option>
+                    <option value="室内">室内</option><option value="水景">水景/滨水</option>
                   </select>
                 </div>
                 <div>
-                  <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">出图方式</label>
-                  <select id="outputMethod" class="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
-                    <option value="纯文字提示词">纯文字提示词</option>
-                    <option value="风格迁移">风格迁移</option>
+                  <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">时间天气</label>
+                  <select id="timeWeather" class="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
+                    <option value="">自动判断</option>
+                    <option value="晴天日光">晴天日光</option><option value="阴天漫射">阴天漫射</option>
+                    <option value="清晨薄雾">清晨薄雾</option><option value="黄金时刻">黄金时刻</option>
+                    <option value="蓝调时刻">蓝调时刻</option><option value="阴雨">阴雨</option>
+                    <option value="深夜">深夜</option><option value="雪后初霁">雪后初霁</option>
                   </select>
                 </div>
               </div>
-            </details>
-          </div>
-        </div>
-      </div>
 
-      <!-- Reference images (collapsible) -->
-      <details class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5">
-        <summary class="text-sm font-semibold text-gray-600 dark:text-gray-400 cursor-pointer">参考图 <span class="font-normal text-gray-400">(可选，标注关注点)</span></summary>
-        <div class="mt-3 space-y-3">
-          <div id="refList"></div>
-          <div id="refDropZone" class="drop-zone border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-4 text-center cursor-pointer">
-            <p class="text-sm text-gray-400">+ 添加参考图</p>
-            <input type="file" id="refInput" accept="image/*" class="hidden" />
-          </div>
-        </div>
-      </details>
-
-      <!-- Enhance button -->
-      <div class="flex justify-center pt-2">
-        <button id="enhanceBtn" onclick="enhance()"
-          class="bg-brand-600 hover:bg-brand-700 text-white font-semibold px-10 py-3 rounded-xl text-sm transition-all shadow-lg shadow-brand-600/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/></svg>
-          生成 Prompt
-        </button>
-      </div>
-    </section>
-
-    <!-- ═══ Phase 2: Prompt ═══ -->
-    <section id="promptPhase" class="phase">
-      <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5">
-        <div class="flex items-center justify-between mb-3">
-          <h2 class="text-sm font-semibold text-gray-600 dark:text-gray-400">Enhanced Prompt</h2>
-          <div class="flex items-center gap-3">
-            <span id="wordCount" class="text-xs text-gray-400 tabular-nums"></span>
-            <button onclick="copyPrompt()" id="copyBtn" class="text-xs text-brand-600 hover:text-brand-700 flex items-center gap-1">
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
-              复制
-            </button>
-            <button onclick="enhance()" class="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1">
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-              重新生成
-            </button>
-          </div>
-        </div>
-        <textarea id="promptOutput" rows="6"
-          class="prompt-area w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-4 py-3 text-sm resize-y"
-          oninput="updateWordCount()"
-          placeholder="Enhanced prompt will appear here..."></textarea>
-      </div>
-
-      <!-- Generation settings -->
-      <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5 mt-4">
-        <h2 class="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-4">生图参数</h2>
-        <div class="flex flex-wrap items-end gap-5">
-          <div class="flex-1 min-w-[140px]">
-            <label class="block text-xs text-gray-500 mb-1">模型</label>
-            <select id="genModel" class="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
-              <option value="nano-banana-pro">Nano Banana Pro</option>
-              <option value="nano-banana2">Nano Banana 2 (Fast)</option>
-              <option value="seedream-5-lite">Seedream 5 Lite</option>
-            </select>
-          </div>
-          <div>
-            <label class="block text-xs text-gray-500 mb-1">比例</label>
-            <select id="genRatio" class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
-              <option value="keep" selected>原图比例</option>
-              <option value="4:3">4:3</option>
-              <option value="16:9">16:9</option>
-              <option value="1:1">1:1</option>
-              <option value="3:4">3:4</option>
-              <option value="9:16">9:16</option>
-            </select>
-          </div>
-          <div>
-            <label class="block text-xs text-gray-500 mb-1">分辨率</label>
-            <select id="genSize" class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
-              <option value="2K" selected>2K</option>
-              <option value="4K">4K</option>
-              <option value="1K">1K</option>
-            </select>
-          </div>
-          <div>
-            <label class="block text-xs text-gray-500 mb-1">数量</label>
-            <div class="flex gap-1" id="countSelector">
-              <button class="count-btn border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300" data-count="1">1</button>
-              <button class="count-btn border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 active" data-count="2">2</button>
-              <button class="count-btn border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300" data-count="3">3</button>
-              <button class="count-btn border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300" data-count="4">4</button>
+              <details class="mt-3">
+                <summary class="text-xs text-gray-400 cursor-pointer hover:text-gray-600">更多设置</summary>
+                <div class="grid grid-cols-2 gap-3 mt-3">
+                  <div>
+                    <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">建筑风格</label>
+                    <select id="buildingStyle" class="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
+                      <option value="">不限定</option>
+                      <option value="极简主义">极简主义</option><option value="参数化">参数化</option>
+                      <option value="日式 (隈研吾)">日式 (隈研吾)</option><option value="北欧 (Snohetta)">北欧</option>
+                      <option value="David Chipperfield">David Chipperfield</option>
+                      <option value="Peter Zumthor">Peter Zumthor</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">出图方式</label>
+                    <select id="outputMethod" class="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
+                      <option value="纯文字提示词">纯文字提示词</option>
+                      <option value="风格迁移">风格迁移</option>
+                    </select>
+                  </div>
+                </div>
+              </details>
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- Generate button -->
-      <div class="flex justify-center pt-4">
-        <button id="generateBtn" onclick="generateImages()"
-          class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-10 py-3 rounded-xl text-sm transition-all shadow-lg shadow-emerald-600/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
-          生成效果图
-        </button>
-      </div>
-    </section>
+        <!-- Reference images -->
+        <details class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5">
+          <summary class="text-sm font-semibold text-gray-600 dark:text-gray-400 cursor-pointer">参考图 <span class="font-normal text-gray-400">(可选，标注关注点)</span></summary>
+          <div class="mt-3 space-y-3">
+            <div id="refList"></div>
+            <div id="refDropZone" class="drop-zone border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-4 text-center cursor-pointer">
+              <p class="text-sm text-gray-400">+ 添加参考图</p>
+              <input type="file" id="refInput" accept="image/*" class="hidden" />
+            </div>
+          </div>
+        </details>
 
-    <!-- ═══ Phase 3: Gallery ═══ -->
-    <section id="galleryPhase" class="phase">
-      <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5">
-        <div class="flex items-center justify-between mb-4">
-          <h2 class="text-sm font-semibold text-gray-600 dark:text-gray-400">生成结果</h2>
-          <button onclick="generateImages()" id="generateMoreBtn"
-            class="text-xs text-emerald-600 hover:text-emerald-700 flex items-center gap-1">
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-            继续生成
+        <!-- Enhance button -->
+        <div class="flex justify-center pt-2">
+          <button id="enhanceBtn" onclick="enhance()"
+            class="bg-brand-600 hover:bg-brand-700 text-white font-semibold px-10 py-3 rounded-xl text-sm transition-all shadow-lg shadow-brand-600/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/></svg>
+            生成 Prompt
           </button>
         </div>
-        <div id="gallery" class="grid grid-cols-1 sm:grid-cols-2 gap-4"></div>
+      </section>
+
+      <!-- Phase 2: Prompt -->
+      <section id="promptPhase" class="phase">
+        <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5">
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-sm font-semibold text-gray-600 dark:text-gray-400">Enhanced Prompt</h2>
+            <div class="flex items-center gap-3">
+              <span id="wordCount" class="text-xs text-gray-400 tabular-nums"></span>
+              <button onclick="copyPrompt()" id="copyBtn" class="text-xs text-brand-600 hover:text-brand-700 flex items-center gap-1">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                复制
+              </button>
+              <button onclick="enhance()" class="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                重新生成
+              </button>
+            </div>
+          </div>
+          <textarea id="promptOutput" rows="6"
+            class="prompt-area w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-4 py-3 text-sm resize-y"
+            oninput="updateWordCount()"
+            placeholder="Enhanced prompt will appear here..."></textarea>
+        </div>
+
+        <!-- Generation settings -->
+        <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5 mt-4">
+          <h2 class="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-4">生图参数</h2>
+          <div class="flex flex-wrap items-end gap-5">
+            <div class="flex-1 min-w-[140px]">
+              <label class="block text-xs text-gray-500 mb-1">模型</label>
+              <select id="genModel" class="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
+                <option value="nano-banana-pro">Nano Banana Pro</option>
+                <option value="nano-banana2">Nano Banana 2 (Fast)</option>
+                <option value="seedream-5-lite">Seedream 5 Lite</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs text-gray-500 mb-1">比例</label>
+              <select id="genRatio" class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
+                <option value="keep" selected>原图比例</option>
+                <option value="4:3">4:3</option>
+                <option value="16:9">16:9</option>
+                <option value="1:1">1:1</option>
+                <option value="3:4">3:4</option>
+                <option value="9:16">9:16</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs text-gray-500 mb-1">分辨率</label>
+              <select id="genSize" class="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
+                <option value="2K" selected>2K</option>
+                <option value="4K">4K</option>
+                <option value="1K">1K</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs text-gray-500 mb-1">数量</label>
+              <div class="flex gap-1" id="countSelector">
+                <button class="count-btn border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300" data-count="1">1</button>
+                <button class="count-btn border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 active" data-count="2">2</button>
+                <button class="count-btn border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300" data-count="3">3</button>
+                <button class="count-btn border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300" data-count="4">4</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Generate button -->
+        <div class="flex justify-center pt-4">
+          <button id="generateBtn" onclick="generateImages()"
+            class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-10 py-3 rounded-xl text-sm transition-all shadow-lg shadow-emerald-600/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+            生成效果图
+          </button>
+        </div>
+      </section>
+
+      <!-- Phase 3: Gallery (current session) -->
+      <section id="galleryPhase" class="phase">
+        <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-sm font-semibold text-gray-600 dark:text-gray-400">生成结果</h2>
+            <button onclick="generateImages()" id="generateMoreBtn"
+              class="text-xs text-emerald-600 hover:text-emerald-700 flex items-center gap-1">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+              继续生成
+            </button>
+          </div>
+          <div id="gallery" class="grid grid-cols-1 sm:grid-cols-2 gap-4"></div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════ -->
+  <!-- View: Library (图库)                               -->
+  <!-- ══════════════════════════════════════════════════ -->
+  <div id="viewLibrary" class="hidden">
+    <div class="max-w-6xl mx-auto px-6 py-6">
+
+      <!-- Toolbar -->
+      <div class="flex items-center justify-between mb-5">
+        <div class="flex items-center gap-3">
+          <h2 class="text-lg font-semibold">图库</h2>
+          <span id="libTotalCount" class="text-sm text-gray-400 tabular-nums"></span>
+        </div>
+        <div class="flex items-center gap-2">
+          <!-- Batch mode toggle -->
+          <button id="batchToggleBtn" onclick="toggleBatchMode()"
+            class="text-xs px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors">
+            批量操作
+          </button>
+        </div>
       </div>
-    </section>
 
-  </main>
+      <!-- Batch action bar (hidden by default) -->
+      <div id="batchBar" class="hidden mb-4 bg-brand-50 dark:bg-brand-500/10 border border-brand-200 dark:border-brand-500/30 rounded-xl px-4 py-3 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <button onclick="selectAllVisible()" class="text-xs text-brand-600 dark:text-brand-400 hover:underline">全选</button>
+          <button onclick="deselectAll()" class="text-xs text-gray-500 hover:underline">取消全选</button>
+          <span id="batchSelectedCount" class="text-xs text-gray-500 tabular-nums">已选 0 张</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="batchDownload()" class="text-xs px-3 py-1.5 rounded-lg bg-brand-600 text-white hover:bg-brand-700 flex items-center gap-1 disabled:opacity-50" id="batchDownloadBtn" disabled>
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+            下载
+          </button>
+          <button onclick="batchDelete()" class="text-xs px-3 py-1.5 rounded-lg bg-red-500 text-white hover:bg-red-600 flex items-center gap-1 disabled:opacity-50" id="batchDeleteBtn" disabled>
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+            删除
+          </button>
+        </div>
+      </div>
 
-  <!-- Lightbox -->
+      <!-- Library content (date-grouped masonry) -->
+      <div id="libraryContent"></div>
+
+      <!-- Empty state -->
+      <div id="libraryEmpty" class="hidden py-20 text-center">
+        <svg class="mx-auto h-16 w-16 text-gray-200 dark:text-gray-700 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+        <p class="text-gray-400 dark:text-gray-500 text-sm">还没有生成过图片</p>
+        <p class="text-gray-300 dark:text-gray-600 text-xs mt-1">在「生图」页面生成的图片会自动保存到这里</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Detail Modal (library) -->
+  <div id="detailModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center opacity-0 pointer-events-none transition-opacity duration-300" style="z-index:90" onclick="closeDetail(event)">
+    <div class="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl max-w-3xl w-full mx-4 max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+      <div class="flex items-center justify-between p-5 border-b border-gray-100 dark:border-gray-800">
+        <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">图片详情</h3>
+        <button onclick="closeDetail()" class="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
+      </div>
+      <div class="p-5 space-y-4">
+        <!-- Generated image -->
+        <div id="detailImage" class="rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800 cursor-pointer"></div>
+        <!-- Meta -->
+        <div class="flex flex-wrap gap-2 text-xs">
+          <span id="detailModel" class="px-2 py-1 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-500"></span>
+          <span id="detailRatio" class="px-2 py-1 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-500"></span>
+          <span id="detailSize" class="px-2 py-1 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-500"></span>
+          <span id="detailDate" class="px-2 py-1 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-500"></span>
+        </div>
+        <!-- Prompt -->
+        <div>
+          <label class="block text-xs text-gray-400 mb-1.5">Prompt</label>
+          <div id="detailPrompt" class="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 rounded-lg px-4 py-3 font-mono leading-relaxed whitespace-pre-wrap"></div>
+        </div>
+        <!-- Base image -->
+        <div id="detailBaseWrap" class="hidden">
+          <label class="block text-xs text-gray-400 mb-1.5">基础图</label>
+          <img id="detailBaseImg" class="rounded-lg max-h-[200px] object-contain" />
+        </div>
+        <!-- Actions -->
+        <div class="flex gap-2 pt-2">
+          <button id="detailDownloadBtn" class="flex-1 text-sm px-4 py-2 rounded-lg bg-brand-600 text-white hover:bg-brand-700 flex items-center justify-center gap-1.5">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+            下载
+          </button>
+          <button id="detailDeleteBtn" class="text-sm px-4 py-2 rounded-lg border border-red-200 dark:border-red-800 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center justify-center gap-1.5">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+            删除
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Lightbox (shared) -->
   <div id="lightbox" class="lightbox" onclick="closeLightbox(event)">
     <button onclick="closeLightbox()" class="absolute top-4 right-4 text-white/70 hover:text-white text-2xl z-10">&times;</button>
     <button id="lbPrev" onclick="navigateLightbox(event,-1)" class="absolute left-4 top-1/2 -translate-y-1/2 text-white/50 hover:text-white text-3xl z-10">&#8249;</button>
