@@ -9,9 +9,34 @@ const references = [];      // [{ image: data:..., focuses: [] }]
 let generatedImages = [];   // [{ url, status: 'loading'|'done'|'error', message }]
 let selectedCount = 2;
 let lightboxIndex = -1;
+let currentView = 'generate'; // 'generate' | 'library'
+
+// Library state
+let batchMode = false;
+let batchSelected = new Set(); // set of library item ids
+let lightboxSource = 'generate'; // which view opened the lightbox
+let lightboxLibItems = [];      // flat list of lib items for lightbox nav
 
 const FOCUS_OPTIONS = ['光线', '色调', '材质', '氛围', '配景', '构图', '空气感'];
 const MAX_IMAGE_DIM = 2048;
+const STORAGE_KEY = 'arch_gallery';
+
+// ═══════════════════════════════════════════════════════
+// View Navigation
+// ═══════════════════════════════════════════════════════
+
+function switchView(view) {
+  currentView = view;
+  document.querySelectorAll('.nav-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.view === view);
+  });
+  document.getElementById('viewGenerate').classList.toggle('hidden', view !== 'generate');
+  document.getElementById('viewLibrary').classList.toggle('hidden', view !== 'library');
+
+  if (view === 'library') {
+    renderLibrary();
+  }
+}
 
 // ═══════════════════════════════════════════════════════
 // Image Compression
@@ -55,7 +80,6 @@ async function uploadToCDN(dataUrl, name) {
 
 function showPhase(id) {
   document.getElementById(id).classList.add('visible');
-  // Scroll into view smoothly
   setTimeout(() => {
     document.getElementById(id).scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, 100);
@@ -86,7 +110,6 @@ async function handleBaseFile(file) {
     document.getElementById('basePlaceholder').classList.add('hidden');
     document.getElementById('basePreview').classList.remove('hidden');
 
-    // Detect aspect ratio from base image
     const img = new Image();
     img.onload = () => {
       baseImageRatio = detectAspectRatio(img.width, img.height);
@@ -99,7 +122,6 @@ async function handleBaseFile(file) {
 
 function detectAspectRatio(w, h) {
   const r = w / h;
-  // Find closest standard ratio
   const ratios = [
     { label: '1:1', value: 1 },
     { label: '4:3', value: 4/3 },
@@ -216,11 +238,9 @@ async function enhance() {
   output.classList.add('streaming');
   output.readOnly = true;
 
-  // Show prompt phase
   showPhase('promptPhase');
 
   try {
-    // Upload images to CDN with status
     const totalUploads = (baseImageData && !baseImageUrl ? 1 : 0) + references.length;
     let uploadIdx = 0;
 
@@ -261,10 +281,8 @@ async function enhance() {
       })),
     };
 
-    // Clear upload logs before streaming prompt
     output.value = '';
 
-    // SSE stream
     console.log('[enhance] sending request, baseImageUrl:', baseImageUrl);
     const resp = await fetch('/api/enhance', {
       method: 'POST',
@@ -335,7 +353,6 @@ async function generateImages() {
   moreBtn.style.display = 'none';
   btn.innerHTML = spinnerHTML('准备中...');
 
-  // Initialize gallery slots
   const startIdx = generatedImages.length;
   for (let i = 0; i < selectedCount; i++) {
     generatedImages.push({ url: null, status: 'loading', message: 'Waiting...' });
@@ -343,16 +360,18 @@ async function generateImages() {
   renderGallery();
   showPhase('galleryPhase');
 
-  // Resolve "keep" ratio to actual detected ratio
   let aspectRatio = document.getElementById('genRatio').value;
   if (aspectRatio === 'keep') aspectRatio = baseImageRatio || '4:3';
 
+  const modelValue = document.getElementById('genModel').value;
+  const sizeValue = document.getElementById('genSize').value;
+
   const body = {
     prompt,
-    model: document.getElementById('genModel').value,
+    model: modelValue,
     baseImageUrl: baseImageUrl || null,
     aspectRatio,
-    imageSize: document.getElementById('genSize').value,
+    imageSize: sizeValue,
     count: selectedCount,
   };
 
@@ -386,6 +405,15 @@ async function generateImages() {
           } else if (data.type === 'image' && generatedImages[idx]) {
             generatedImages[idx] = { url: data.url, status: 'done', message: '' };
             renderGallery();
+            // Save to library
+            saveToLibrary({
+              url: data.url,
+              prompt,
+              baseImageUrl: baseImageUrl || null,
+              model: modelValue,
+              ratio: aspectRatio,
+              size: sizeValue,
+            });
           } else if (data.type === 'error' && generatedImages[idx]) {
             generatedImages[idx] = { url: null, status: 'error', message: data.message };
             renderGallery();
@@ -394,7 +422,6 @@ async function generateImages() {
       }
     }
   } catch (err) {
-    // Mark remaining loading slots as error
     for (let i = startIdx; i < generatedImages.length; i++) {
       if (generatedImages[i].status === 'loading') {
         generatedImages[i] = { url: null, status: 'error', message: err.message };
@@ -405,11 +432,12 @@ async function generateImages() {
     btn.disabled = false;
     btn.innerHTML = generateBtnHTML();
     moreBtn.style.display = '';
+    updateLibCount();
   }
 }
 
 // ═══════════════════════════════════════════════════════
-// Gallery Rendering
+// Gallery Rendering (generate view)
 // ═══════════════════════════════════════════════════════
 
 function renderGallery() {
@@ -436,7 +464,6 @@ function renderGallery() {
           </div>
         </div>`;
     }
-    // done
     return `
       <div class="img-card aspect-[4/3] bg-gray-100 dark:bg-gray-800" onclick="openLightbox(${i})">
         <img src="${img.url}" class="w-full h-full object-cover" loading="lazy" />
@@ -461,12 +488,24 @@ function escapeHtml(str) {
 // ═══════════════════════════════════════════════════════
 
 function openLightbox(index) {
-  const doneImages = generatedImages.filter(img => img.status === 'done');
-  const doneIndex = getDoneIndex(index);
-  if (doneIndex < 0) return;
+  if (lightboxSource === 'library') {
+    // Called from library context
+    if (!lightboxLibItems[index]) return;
+    lightboxIndex = index;
+    document.getElementById('lbImage').src = lightboxLibItems[index].url;
+  } else {
+    if (!generatedImages[index] || generatedImages[index].status !== 'done') return;
+    lightboxIndex = index;
+    document.getElementById('lbImage').src = generatedImages[index].url;
+  }
+  document.getElementById('lightbox').classList.add('open');
+  updateLightboxNav();
+}
 
-  lightboxIndex = index;
-  document.getElementById('lbImage').src = generatedImages[index].url;
+function openLibLightbox(flatIndex) {
+  lightboxSource = 'library';
+  lightboxIndex = flatIndex;
+  document.getElementById('lbImage').src = lightboxLibItems[flatIndex].url;
   document.getElementById('lightbox').classList.add('open');
   updateLightboxNav();
 }
@@ -475,10 +514,20 @@ function closeLightbox(e) {
   if (e && e.target !== e.currentTarget && !e.target.closest('button')) return;
   document.getElementById('lightbox').classList.remove('open');
   lightboxIndex = -1;
+  lightboxSource = 'generate';
 }
 
 function navigateLightbox(e, dir) {
   e.stopPropagation();
+  if (lightboxSource === 'library') {
+    const newIdx = lightboxIndex + dir;
+    if (newIdx >= 0 && newIdx < lightboxLibItems.length) {
+      lightboxIndex = newIdx;
+      document.getElementById('lbImage').src = lightboxLibItems[newIdx].url;
+      updateLightboxNav();
+    }
+    return;
+  }
   const doneIndices = generatedImages.map((img, i) => img.status === 'done' ? i : -1).filter(i => i >= 0);
   const currentPos = doneIndices.indexOf(lightboxIndex);
   const newPos = currentPos + dir;
@@ -490,18 +539,23 @@ function navigateLightbox(e, dir) {
 }
 
 function updateLightboxNav() {
+  if (lightboxSource === 'library') {
+    document.getElementById('lbPrev').style.visibility = lightboxIndex > 0 ? 'visible' : 'hidden';
+    document.getElementById('lbNext').style.visibility = lightboxIndex < lightboxLibItems.length - 1 ? 'visible' : 'hidden';
+    return;
+  }
   const doneIndices = generatedImages.map((img, i) => img.status === 'done' ? i : -1).filter(i => i >= 0);
   const pos = doneIndices.indexOf(lightboxIndex);
   document.getElementById('lbPrev').style.visibility = pos > 0 ? 'visible' : 'hidden';
   document.getElementById('lbNext').style.visibility = pos < doneIndices.length - 1 ? 'visible' : 'hidden';
 }
 
-function getDoneIndex(globalIndex) {
-  return generatedImages[globalIndex]?.status === 'done' ? globalIndex : -1;
-}
-
-// Keyboard navigation
 document.addEventListener('keydown', (e) => {
+  // Close detail modal on Escape
+  if (e.key === 'Escape' && document.getElementById('detailModal').classList.contains('detail-open')) {
+    closeDetail();
+    return;
+  }
   if (lightboxIndex < 0) return;
   if (e.key === 'Escape') closeLightbox();
   if (e.key === 'ArrowLeft') navigateLightbox(e, -1);
@@ -516,24 +570,312 @@ async function downloadImage(e, index) {
   e.stopPropagation();
   const img = generatedImages[index];
   if (!img?.url) return;
-
-  const filename = `rendering_${index + 1}_${Date.now()}.png`;
-  try {
-    const resp = await fetch(img.url);
-    const blob = await resp.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = filename; a.click();
-    URL.revokeObjectURL(url);
-  } catch {
-    // Fallback: open in new tab
-    window.open(img.url, '_blank');
-  }
+  await downloadUrl(img.url, `rendering_${index + 1}_${Date.now()}.png`);
 }
 
 function downloadLightboxImage(e) {
   e.stopPropagation();
-  if (lightboxIndex >= 0) downloadImage(e, lightboxIndex);
+  if (lightboxIndex < 0) return;
+  const url = lightboxSource === 'library'
+    ? lightboxLibItems[lightboxIndex]?.url
+    : generatedImages[lightboxIndex]?.url;
+  if (url) downloadUrl(url, `rendering_${Date.now()}.png`);
+}
+
+async function downloadUrl(url, filename) {
+  try {
+    const resp = await fetch(url);
+    const blob = await resp.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = blobUrl; a.download = filename; a.click();
+    URL.revokeObjectURL(blobUrl);
+  } catch {
+    window.open(url, '_blank');
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// Library — Persistent Storage (localStorage)
+// ═══════════════════════════════════════════════════════
+
+function getLibrary() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+  } catch { return []; }
+}
+
+function setLibrary(items) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+  updateLibCount();
+}
+
+function saveToLibrary({ url, prompt, baseImageUrl, model, ratio, size }) {
+  const items = getLibrary();
+  items.unshift({
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    url,
+    prompt: prompt || '',
+    baseImageUrl: baseImageUrl || null,
+    model: model || '',
+    ratio: ratio || '',
+    size: size || '',
+    createdAt: new Date().toISOString(),
+  });
+  setLibrary(items);
+}
+
+function deleteFromLibrary(ids) {
+  const idSet = new Set(Array.isArray(ids) ? ids : [ids]);
+  const items = getLibrary().filter(item => !idSet.has(item.id));
+  setLibrary(items);
+}
+
+function updateLibCount() {
+  const count = getLibrary().length;
+  const el = document.getElementById('libCount');
+  el.textContent = count;
+  el.style.display = count > 0 ? '' : 'none';
+}
+
+// ═══════════════════════════════════════════════════════
+// Library — Rendering
+// ═══════════════════════════════════════════════════════
+
+function renderLibrary() {
+  const items = getLibrary();
+  const content = document.getElementById('libraryContent');
+  const empty = document.getElementById('libraryEmpty');
+  const totalEl = document.getElementById('libTotalCount');
+
+  totalEl.textContent = `${items.length} 张`;
+
+  if (items.length === 0) {
+    content.innerHTML = '';
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+
+  // Group by date
+  const groups = {};
+  for (const item of items) {
+    const date = new Date(item.createdAt);
+    const key = formatDateGroup(date);
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(item);
+  }
+
+  // Build flat list for lightbox navigation
+  lightboxLibItems = items;
+
+  // Render date groups with masonry
+  const batchClass = batchMode ? 'batch-mode' : '';
+  let html = '';
+  for (const [dateLabel, groupItems] of Object.entries(groups)) {
+    html += `
+      <div class="mb-8">
+        <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">${dateLabel} <span class="text-gray-300 dark:text-gray-600">(${groupItems.length})</span></h3>
+        <div class="masonry ${batchClass}">
+          ${groupItems.map(item => {
+            const flatIdx = items.indexOf(item);
+            const checked = batchSelected.has(item.id) ? 'checked' : '';
+            return `
+              <div class="masonry-item">
+                <div class="lib-card" onclick="${batchMode ? `toggleBatchItem('${item.id}')` : `openDetailModal('${item.id}')`}">
+                  <div class="batch-check ${checked}" onclick="event.stopPropagation(); toggleBatchItem('${item.id}')">
+                    <svg class="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>
+                  </div>
+                  <img src="${item.url}" loading="lazy" />
+                  <div class="lib-overlay">
+                    <div class="flex-1 min-w-0">
+                      <p class="text-white text-xs truncate">${escapeHtml(item.model || '')}</p>
+                      <p class="text-white/60 text-xs">${formatTime(new Date(item.createdAt))}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+  }
+  content.innerHTML = html;
+}
+
+function formatDateGroup(date) {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const diffDays = Math.floor((today - target) / 86400000);
+
+  if (diffDays === 0) return '今天';
+  if (diffDays === 1) return '昨天';
+  if (diffDays < 7) return `${diffDays} 天前`;
+
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return y === now.getFullYear() ? `${m}-${d}` : `${y}-${m}-${d}`;
+}
+
+function formatTime(date) {
+  return `${String(date.getHours()).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')}`;
+}
+
+// ═══════════════════════════════════════════════════════
+// Library — Detail Modal
+// ═══════════════════════════════════════════════════════
+
+let detailItemId = null;
+
+function openDetailModal(id) {
+  const items = getLibrary();
+  const item = items.find(i => i.id === id);
+  if (!item) return;
+  detailItemId = id;
+
+  // Image
+  document.getElementById('detailImage').innerHTML = `<img src="${item.url}" class="w-full rounded-lg" onclick="openLibLightboxById('${id}')" />`;
+
+  // Meta
+  const modelNames = {
+    'nano-banana-pro': 'Nano Banana Pro',
+    'nano-banana2': 'Nano Banana 2',
+    'seedream-5-lite': 'Seedream 5 Lite',
+  };
+  document.getElementById('detailModel').textContent = modelNames[item.model] || item.model || '-';
+  document.getElementById('detailRatio').textContent = item.ratio || '-';
+  document.getElementById('detailSize').textContent = item.size || '-';
+  const d = new Date(item.createdAt);
+  document.getElementById('detailDate').textContent = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+
+  // Prompt
+  document.getElementById('detailPrompt').textContent = item.prompt || '(无)';
+
+  // Base image
+  const baseWrap = document.getElementById('detailBaseWrap');
+  if (item.baseImageUrl) {
+    document.getElementById('detailBaseImg').src = item.baseImageUrl;
+    baseWrap.classList.remove('hidden');
+  } else {
+    baseWrap.classList.add('hidden');
+  }
+
+  // Actions
+  document.getElementById('detailDownloadBtn').onclick = () => downloadUrl(item.url, `rendering_${item.id}.png`);
+  document.getElementById('detailDeleteBtn').onclick = () => {
+    if (confirm('确定从图库中删除这张图片？')) {
+      deleteFromLibrary(item.id);
+      closeDetail();
+      renderLibrary();
+    }
+  };
+
+  const modal = document.getElementById('detailModal');
+  modal.classList.add('detail-open');
+  modal.style.opacity = '1';
+  modal.style.pointerEvents = 'auto';
+}
+
+function openLibLightboxById(id) {
+  const items = getLibrary();
+  lightboxLibItems = items;
+  const idx = items.findIndex(i => i.id === id);
+  if (idx < 0) return;
+  lightboxSource = 'library';
+  lightboxIndex = idx;
+  document.getElementById('lbImage').src = items[idx].url;
+  document.getElementById('lightbox').classList.add('open');
+  updateLightboxNav();
+}
+
+function closeDetail(e) {
+  if (e && e.target !== e.currentTarget) return;
+  const modal = document.getElementById('detailModal');
+  modal.classList.remove('detail-open');
+  modal.style.opacity = '0';
+  modal.style.pointerEvents = 'none';
+  detailItemId = null;
+}
+
+// ═══════════════════════════════════════════════════════
+// Library — Batch Operations
+// ═══════════════════════════════════════════════════════
+
+function toggleBatchMode() {
+  batchMode = !batchMode;
+  batchSelected.clear();
+  const btn = document.getElementById('batchToggleBtn');
+  const bar = document.getElementById('batchBar');
+
+  if (batchMode) {
+    btn.textContent = '退出批量';
+    btn.classList.add('bg-brand-50', 'dark:bg-brand-500/10', 'border-brand-300', 'dark:border-brand-500/30', 'text-brand-600');
+    bar.classList.remove('hidden');
+  } else {
+    btn.textContent = '批量操作';
+    btn.classList.remove('bg-brand-50', 'dark:bg-brand-500/10', 'border-brand-300', 'dark:border-brand-500/30', 'text-brand-600');
+    bar.classList.add('hidden');
+  }
+  updateBatchUI();
+  renderLibrary();
+}
+
+function toggleBatchItem(id) {
+  if (!batchMode) {
+    // Auto-enter batch mode on first check
+    batchMode = true;
+    document.getElementById('batchToggleBtn').textContent = '退出批量';
+    document.getElementById('batchToggleBtn').classList.add('bg-brand-50', 'dark:bg-brand-500/10', 'border-brand-300', 'dark:border-brand-500/30', 'text-brand-600');
+    document.getElementById('batchBar').classList.remove('hidden');
+  }
+  if (batchSelected.has(id)) batchSelected.delete(id);
+  else batchSelected.add(id);
+  updateBatchUI();
+  renderLibrary();
+}
+
+function selectAllVisible() {
+  const items = getLibrary();
+  items.forEach(i => batchSelected.add(i.id));
+  updateBatchUI();
+  renderLibrary();
+}
+
+function deselectAll() {
+  batchSelected.clear();
+  updateBatchUI();
+  renderLibrary();
+}
+
+function updateBatchUI() {
+  const count = batchSelected.size;
+  document.getElementById('batchSelectedCount').textContent = `已选 ${count} 张`;
+  document.getElementById('batchDownloadBtn').disabled = count === 0;
+  document.getElementById('batchDeleteBtn').disabled = count === 0;
+}
+
+async function batchDownload() {
+  const items = getLibrary();
+  const selected = items.filter(i => batchSelected.has(i.id));
+  if (selected.length === 0) return;
+
+  for (const item of selected) {
+    await downloadUrl(item.url, `rendering_${item.id}.png`);
+    // Small delay to prevent browser blocking multiple downloads
+    await new Promise(r => setTimeout(r, 300));
+  }
+}
+
+function batchDelete() {
+  const count = batchSelected.size;
+  if (count === 0) return;
+  if (!confirm(`确定从图库中删除选中的 ${count} 张图片？`)) return;
+
+  deleteFromLibrary([...batchSelected]);
+  batchSelected.clear();
+  updateBatchUI();
+  renderLibrary();
 }
 
 // ═══════════════════════════════════════════════════════
@@ -551,3 +893,9 @@ function enhanceBtnHTML() {
 function generateBtnHTML() {
   return '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg> 生成效果图';
 }
+
+// ═══════════════════════════════════════════════════════
+// Init
+// ═══════════════════════════════════════════════════════
+
+updateLibCount();
