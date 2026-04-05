@@ -136,63 +136,61 @@ function extractImage(provider, data) {
   return null;
 }
 
-// ─── 单张图片完整流程 ───
+// ─── Phase 1: 生成单张图片（create + poll），返回原始结果 ───
 
-async function processOneImage({ index, total, tamsToken, cdnToken, modelInfo, prompt, baseImageUrl, ratio, size, res }) {
+async function generateOneImage({ index, total, tamsToken, modelInfo, prompt, baseImageUrl, ratio, size, res }) {
   const label = `${index + 1}/${total}`;
 
+  // 1. Create task
+  sendSSE(res, { type: 'progress', message: `Creating task ${label}...`, index });
+  let requestId;
+  if (modelInfo.provider === 'genai') {
+    requestId = await createGeminiTask(tamsToken, modelInfo.id, prompt, baseImageUrl, { aspectRatio: ratio, imageSize: size });
+  } else {
+    const sizeStr = SEEDREAM_SIZES[ratio]?.[size] || '2048x1536';
+    requestId = await createVolcanoTask(tamsToken, modelInfo.id, prompt, baseImageUrl, sizeStr);
+  }
+
+  // 2. Poll
+  sendSSE(res, { type: 'progress', message: `Generating ${label}...`, index });
+  const result = await pollResult(tamsToken, modelInfo.provider, requestId, (status, attempt) => {
+    if (attempt % 3 === 0) {
+      sendSSE(res, { type: 'progress', message: `Generating ${label} (${Math.round(attempt * 3)}s)...`, index });
+    }
+  });
+
+  if (!result.success) throw new Error(result.error);
+
+  // 3. Extract image
+  const imageResult = extractImage(modelInfo.provider, result.data);
+  if (!imageResult) throw new Error('No image data in response');
+
+  // 4. Immediately show with temporary URL
+  const tempUrl = imageResult.type === 'url'
+    ? imageResult.value
+    : `data:${imageResult.mime};base64,${imageResult.value}`;
+  sendSSE(res, { type: 'image', url: tempUrl, index });
+  console.log(`[generate] ${label} generated: ${tempUrl.slice(0, 80)}...`);
+
+  return { index, imageResult };
+}
+
+// ─── Phase 2: 批量上传 CDN ───
+
+async function uploadOneToCDN({ index, imageResult, cdnToken, res }) {
   try {
-    // 1. Create task
-    sendSSE(res, { type: 'progress', message: `Creating task ${label}...`, index });
-    let requestId;
-    if (modelInfo.provider === 'genai') {
-      requestId = await createGeminiTask(tamsToken, modelInfo.id, prompt, baseImageUrl, { aspectRatio: ratio, imageSize: size });
+    let cdnUrl;
+    if (imageResult.type === 'base64') {
+      cdnUrl = await uploadBase64ToCDN(imageResult.value, imageResult.mime, cdnToken);
     } else {
-      const sizeStr = SEEDREAM_SIZES[ratio]?.[size] || '2048x1536';
-      requestId = await createVolcanoTask(tamsToken, modelInfo.id, prompt, baseImageUrl, sizeStr);
+      cdnUrl = await downloadAndUploadToCDN(imageResult.value, cdnToken);
     }
-
-    // 2. Poll
-    sendSSE(res, { type: 'progress', message: `Generating ${label}...`, index });
-    const result = await pollResult(tamsToken, modelInfo.provider, requestId, (status, attempt) => {
-      if (attempt % 3 === 0) { // throttle progress updates
-        sendSSE(res, { type: 'progress', message: `Generating ${label} (${Math.round(attempt * 3)}s)...`, index });
-      }
-    });
-
-    if (!result.success) {
-      sendSSE(res, { type: 'error', message: result.error, index });
-      return;
-    }
-
-    // 3. Extract image
-    const imageResult = extractImage(modelInfo.provider, result.data);
-    if (!imageResult) {
-      sendSSE(res, { type: 'error', message: 'No image data in response', index });
-      return;
-    }
-
-    // 4. Upload to CDN
-    let finalUrl;
-    try {
-      sendSSE(res, { type: 'progress', message: `Uploading ${label} to CDN...`, index });
-      if (imageResult.type === 'base64') {
-        finalUrl = await uploadBase64ToCDN(imageResult.value, imageResult.mime, cdnToken);
-      } else {
-        finalUrl = await downloadAndUploadToCDN(imageResult.value, cdnToken);
-      }
-    } catch (uploadErr) {
-      console.warn(`[generate] CDN upload failed for ${label}: ${uploadErr.message}`);
-      finalUrl = imageResult.type === 'url'
-        ? imageResult.value
-        : `data:${imageResult.mime};base64,${imageResult.value}`;
-    }
-
-    sendSSE(res, { type: 'image', url: finalUrl, index });
-    console.log(`[generate] ${label} done: ${finalUrl.slice(0, 80)}...`);
+    // Update frontend with persistent CDN URL
+    sendSSE(res, { type: 'image_updated', url: cdnUrl, index });
+    console.log(`[generate] ${index + 1} CDN: ${cdnUrl.slice(0, 80)}...`);
   } catch (err) {
-    console.error(`[generate] ${label} error:`, err.message);
-    sendSSE(res, { type: 'error', message: err.message, index });
+    console.warn(`[generate] CDN upload failed for ${index + 1}: ${err.message}`);
+    // Keep the temp URL, no update needed
   }
 }
 
@@ -222,17 +220,31 @@ module.exports = async function handler(req, res) {
   res.flushHeaders?.();
 
   sendSSE(res, { type: 'info', model: modelInfo.name, count: imageCount });
-  console.log(`[generate] model=${modelInfo.name} count=${imageCount} ratio=${ratio} size=${size} mode=parallel`);
+  console.log(`[generate] model=${modelInfo.name} count=${imageCount} ratio=${ratio} size=${size} mode=generate-then-upload`);
 
   const cdnToken = process.env.TENSORART_BEARER_TOKEN;
-  const shared = { tamsToken, cdnToken, modelInfo, prompt, baseImageUrl, ratio, size, res, total: imageCount };
+  const shared = { tamsToken, modelInfo, prompt, baseImageUrl, ratio, size, res, total: imageCount };
 
-  // Run all images in parallel
-  const tasks = [];
+  // Phase 1: Generate all images in parallel (show temp URLs immediately)
+  const genTasks = [];
   for (let i = 0; i < imageCount; i++) {
-    tasks.push(processOneImage({ ...shared, index: i }));
+    genTasks.push(
+      generateOneImage({ ...shared, index: i }).catch(err => {
+        console.error(`[generate] ${i + 1}/${imageCount} error:`, err.message);
+        sendSSE(res, { type: 'error', message: err.message, index: i });
+        return null;
+      })
+    );
   }
-  await Promise.allSettled(tasks);
+  const genResults = (await Promise.all(genTasks)).filter(Boolean);
+
+  // Phase 2: Batch upload to CDN (in parallel, non-blocking for user)
+  if (genResults.length > 0 && cdnToken) {
+    sendSSE(res, { type: 'progress', message: 'Uploading to CDN...', index: -1 });
+    await Promise.allSettled(
+      genResults.map(r => uploadOneToCDN({ ...r, cdnToken, res }))
+    );
+  }
 
   sendSSE(res, { type: 'done' });
   res.end();
