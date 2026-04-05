@@ -706,6 +706,45 @@ function updateLibCount() {
 }
 
 // ═══════════════════════════════════════════════════════
+// Library — Export / Import
+// ═══════════════════════════════════════════════════════
+
+function exportLibrary() {
+  const items = getLibrary();
+  if (items.length === 0) { alert('图库为空'); return; }
+  const blob = new Blob([JSON.stringify(items, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `arch-gallery-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function importLibrary(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const imported = JSON.parse(e.target.result);
+      if (!Array.isArray(imported)) { alert('无效的图库文件'); return; }
+      const existing = getLibrary();
+      const existingIds = new Set(existing.map(item => item.id));
+      const newItems = imported.filter(item => item.id && item.url && !existingIds.has(item.id));
+      if (newItems.length === 0) { alert('没有新图片需要导入（全部已存在）'); return; }
+      setLibrary([...newItems, ...existing]);
+      renderLibrary();
+      updateLibCount();
+      alert(`成功导入 ${newItems.length} 张图片（跳过 ${imported.length - newItems.length} 张已存在）`);
+    } catch (err) {
+      alert('文件解析失败：' + err.message);
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+}
+
+// ═══════════════════════════════════════════════════════
 // Library — Rendering
 // ═══════════════════════════════════════════════════════
 
