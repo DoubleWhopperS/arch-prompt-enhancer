@@ -18,6 +18,14 @@ let lightboxSource = 'generate'; // which view opened the lightbox
 let lightboxLibItems = [];      // flat list of lib items for lightbox nav
 
 const FOCUS_OPTIONS = ['光线', '色调', '材质', '氛围', '配景', '构图', '空气感'];
+
+// 出图风格提示词库 — 选择后自动注入到设计意图中
+const RENDER_STYLES = {
+  'spring-morning': {
+    name: '春日晨景',
+    prompt: '春日清晨，低角度侧逆光，柔和散射光，建筑边缘轻微光晕。整体低对比度高调画面(high-key)——高光不过曝，暗部通透不死黑。自然饱和度，不人为增强。嫩绿通透树冠，斑驳树影落地。建筑玻璃内透出柔和暖白色室内光，与室外冷调形成微妙冷暖对比。水面平静倒影与粼粼光斑。',
+  },
+};
 const MAX_IMAGE_DIM = 2048;
 const STORAGE_KEY = 'arch_gallery';
 
@@ -267,12 +275,20 @@ async function enhance() {
     const params = {
       sceneType: document.getElementById('sceneType').value,
       timeWeather: document.getElementById('timeWeather').value,
-      buildingStyle: document.getElementById('buildingStyle')?.value || '',
       outputMethod: document.getElementById('outputMethod')?.value || '',
     };
 
+    // 出图风格注入：选择风格后将浓缩提示词追加到设计意图
+    const renderStyleKey = document.getElementById('renderStyle')?.value || '';
+    let finalIntent = intent;
+    if (renderStyleKey && RENDER_STYLES[renderStyleKey]) {
+      const style = RENDER_STYLES[renderStyleKey];
+      const styleSection = `【出图风格：${style.name}】\n${style.prompt}`;
+      finalIntent = finalIntent ? `${finalIntent}\n\n${styleSection}` : styleSection;
+    }
+
     const body = {
-      intent,
+      intent: finalIntent,
       params,
       baseImageUrl: baseImageUrl || null,
       references: references.map((r, i) => ({
