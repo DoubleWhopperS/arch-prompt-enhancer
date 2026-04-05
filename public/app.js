@@ -298,7 +298,6 @@ async function enhance() {
 
     const params = {
       sceneType: document.getElementById('sceneType').value,
-      timeWeather: document.getElementById('timeWeather').value,
       outputMethod: document.getElementById('outputMethod')?.value || '',
     };
 
@@ -363,10 +362,14 @@ async function enhance() {
 
 function updateWordCount() {
   const text = document.getElementById('promptOutput').value.trim();
-  const words = text ? text.split(/\s+/).length : 0;
+  // Count CJK characters + English words
+  const cjk = (text.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g) || []).length;
+  const nonCjk = text.replace(/[\u4e00-\u9fff\u3400-\u4dbf]/g, ' ').trim();
+  const engWords = nonCjk ? nonCjk.split(/\s+/).filter(w => w.length > 0).length : 0;
+  const total = cjk + engWords;
   const el = document.getElementById('wordCount');
-  el.textContent = `${words} words`;
-  el.className = `text-xs tabular-nums ${words > 150 ? 'text-red-500' : words > 120 ? 'text-amber-500' : 'text-gray-400'}`;
+  el.textContent = `${total} 字`;
+  el.className = `text-xs tabular-nums ${total > 200 ? 'text-red-500' : total > 150 ? 'text-amber-500' : 'text-gray-400'}`;
 }
 
 function copyPrompt() {

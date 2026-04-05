@@ -181,13 +181,16 @@
                   </select>
                 </div>
                 <div>
-                  <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">时间天气</label>
-                  <select id="timeWeather" class="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
-                    <option value="">自动判断</option>
-                    <option value="晴天日光">晴天日光</option><option value="阴天漫射">阴天漫射</option>
-                    <option value="清晨薄雾">清晨薄雾</option><option value="黄金时刻">黄金时刻</option>
-                    <option value="蓝调时刻">蓝调时刻</option><option value="阴雨">阴雨</option>
-                    <option value="深夜">深夜</option><option value="雪后初霁">雪后初霁</option>
+                  <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">出图风格</label>
+                  <select id="renderStyle" class="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
+                    <option value="">不限定</option>
+                    <option value="spring-morning">春日晨景</option>
+                    <option value="blue-hour-commercial">蓝调商业夜景</option>
+                    <option value="minimal-gray">极简高级灰</option>
+                    <option value="blue-hour-gentle">温柔蓝调时刻</option>
+                    <option value="urban-rain">都市雨幕风</option>
+                    <option value="warm-fog">暖调光雾风</option>
+                    <option value="daylight-realism">日光写实风</option>
                   </select>
                 </div>
               </div>
@@ -195,19 +198,6 @@
               <details class="mt-3">
                 <summary class="text-xs text-gray-400 cursor-pointer hover:text-gray-600">更多设置</summary>
                 <div class="grid grid-cols-2 gap-3 mt-3">
-                  <div>
-                    <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">出图风格</label>
-                    <select id="renderStyle" class="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
-                      <option value="">不限定</option>
-                      <option value="spring-morning">春日晨景</option>
-                      <option value="blue-hour-commercial">蓝调商业夜景</option>
-                      <option value="minimal-gray">极简高级灰</option>
-                      <option value="blue-hour-gentle">温柔蓝调时刻</option>
-                      <option value="urban-rain">都市雨幕风</option>
-                      <option value="warm-fog">暖调光雾风</option>
-                      <option value="daylight-realism">日光写实风</option>
-                    </select>
-                  </div>
                   <div>
                     <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">出图方式</label>
                     <select id="outputMethod" class="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm">
