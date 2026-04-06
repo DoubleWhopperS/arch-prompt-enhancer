@@ -237,9 +237,14 @@
           <summary class="text-sm font-semibold text-gray-600 dark:text-gray-400 cursor-pointer">参考图 <span class="font-normal text-gray-400">(可选，选择参考维度自动分析)</span></summary>
           <div class="mt-3 space-y-3">
             <div id="refList"></div>
-            <div id="refDropZone" class="drop-zone border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-4 text-center cursor-pointer">
-              <p class="text-sm text-gray-400">+ 添加参考图</p>
-              <input type="file" id="refInput" accept="image/*" class="hidden" />
+            <div class="flex gap-3">
+              <div id="refDropZone" class="drop-zone flex-1 border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-4 text-center cursor-pointer">
+                <p class="text-sm text-gray-400">+ 添加参考图</p>
+                <input type="file" id="refInput" accept="image/*" class="hidden" />
+              </div>
+              <button onclick="openRefLibPicker()" class="flex-shrink-0 border-2 border-dashed border-indigo-300 dark:border-indigo-700 rounded-lg px-4 py-3 text-center cursor-pointer hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors" title="从素材库导入参考图">
+                <p class="text-sm text-indigo-500 dark:text-indigo-400">📂 从素材库导入</p>
+              </button>
             </div>
           </div>
         </details>
@@ -526,6 +531,59 @@
     </div>
   </div>
 
+  <!-- Fullscreen Image Preview -->
+  <div id="imagePreviewOverlay" class="fixed inset-0 bg-black/90 flex items-center justify-center opacity-0 pointer-events-none transition-opacity duration-300 cursor-pointer" style="z-index:100" onclick="closeImagePreview()">
+    <img id="imagePreviewImg" class="max-w-[95vw] max-h-[95vh] object-contain rounded-lg" />
+    <button class="absolute top-4 right-4 w-10 h-10 bg-white/10 hover:bg-white/20 text-white rounded-full text-xl flex items-center justify-center">&times;</button>
+    <button onclick="event.stopPropagation(); downloadRefImage()" class="absolute bottom-4 right-4 px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg text-sm flex items-center gap-1.5">⬇ 下载</button>
+  </div>
+
+  <!-- Ref Library Picker Modal (for importing into generate view) -->
+  <div id="refLibPickerModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center opacity-0 pointer-events-none transition-opacity duration-300" style="z-index:90" onclick="closeRefLibPicker(event)">
+    <div class="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl max-w-3xl w-full mx-4 max-h-[85vh] flex flex-col" onclick="event.stopPropagation()">
+      <div class="flex items-center justify-between p-5 border-b border-gray-100 dark:border-gray-800">
+        <h3 class="text-base font-bold text-gray-900 dark:text-white">从素材库选择参考图</h3>
+        <button onclick="closeRefLibPicker()" class="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+      </div>
+      <div class="p-4 border-b border-gray-100 dark:border-gray-800">
+        <div class="flex flex-wrap gap-2 items-center">
+          <select id="pickerStyleFilter" onchange="filterPickerItems()" class="text-xs border border-gray-300 dark:border-gray-700 rounded-lg px-2 py-1 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+            <option value="">全部风格</option>
+            <option value="spring-morning">春日清晨</option>
+            <option value="blue-hour-commercial">温柔蓝调时刻</option>
+            <option value="overcast-minimal">阴天极简</option>
+            <option value="golden-hour">黄金时刻</option>
+            <option value="rainy-reflection">雨后倒影</option>
+            <option value="twilight-warm">暮光暖调</option>
+            <option value="night-glow">夜幕光晕</option>
+          </select>
+          <select id="pickerSceneFilter" onchange="filterPickerItems()" class="text-xs border border-gray-300 dark:border-gray-700 rounded-lg px-2 py-1 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+            <option value="">全部场景</option>
+            <option value="住宅">住宅</option>
+            <option value="商办">商办</option>
+            <option value="酒店">酒店</option>
+            <option value="文教">文教</option>
+            <option value="景观">景观</option>
+            <option value="室内">室内</option>
+          </select>
+          <span id="pickerCount" class="text-xs text-gray-400 ml-auto"></span>
+        </div>
+      </div>
+      <div class="flex-1 overflow-y-auto p-4">
+        <div id="pickerGrid" class="grid grid-cols-3 sm:grid-cols-4 gap-3">
+          <p id="pickerEmpty" class="col-span-full text-center text-sm text-gray-400 py-8">素材库为空，请先添加素材</p>
+        </div>
+      </div>
+      <div class="p-4 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between">
+        <span id="pickerSelectedCount" class="text-sm text-gray-500">已选 0 张</span>
+        <div class="flex gap-2">
+          <button onclick="closeRefLibPicker()" class="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 rounded-lg">取消</button>
+          <button id="pickerImportBtn" onclick="importFromRefLib()" disabled class="px-4 py-2 text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">导入选中</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Upload Modal (ref library) -->
   <div id="refUploadModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center opacity-0 pointer-events-none transition-opacity duration-300" style="z-index:90" onclick="closeRefUploadModal(event)">
     <div class="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
@@ -609,7 +667,13 @@
         <button onclick="closeRefDetail()" class="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
       </div>
       <div class="p-5 space-y-4">
-        <div id="refDetailImage" class="rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800 cursor-pointer"></div>
+        <div class="relative group">
+          <div id="refDetailImage" class="rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800 cursor-pointer" onclick="previewRefImage()"></div>
+          <div class="absolute top-2 right-2 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button onclick="previewRefImage()" class="w-8 h-8 bg-black/50 hover:bg-black/70 text-white rounded-lg flex items-center justify-center text-sm" title="预览大图">🔍</button>
+            <button onclick="downloadRefImage()" class="w-8 h-8 bg-black/50 hover:bg-black/70 text-white rounded-lg flex items-center justify-center text-sm" title="下载图片">⬇</button>
+          </div>
+        </div>
         <!-- Tags editor -->
         <div class="space-y-3">
           <div>

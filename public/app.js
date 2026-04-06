@@ -1530,6 +1530,35 @@ function closeRefDetail(e) {
   refDetailItemId = null;
 }
 
+function previewRefImage() {
+  const item = refLibItems.find(i => i.id === refDetailItemId);
+  if (!item) return;
+  document.getElementById('imagePreviewImg').src = item.url;
+  document.getElementById('imagePreviewOverlay').classList.remove('opacity-0', 'pointer-events-none');
+}
+
+function closeImagePreview() {
+  document.getElementById('imagePreviewOverlay').classList.add('opacity-0', 'pointer-events-none');
+}
+
+async function downloadRefImage() {
+  const item = refLibItems.find(i => i.id === refDetailItemId);
+  if (!item) return;
+  try {
+    const resp = await fetch(item.url);
+    const blob = await resp.blob();
+    const ext = blob.type.includes('png') ? 'png' : 'jpg';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `ref_${item.id}.${ext}`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch (err) {
+    // Fallback: open in new tab
+    window.open(item.url, '_blank');
+  }
+}
+
 async function saveRefDetail() {
   if (!refDetailItemId) return;
 
@@ -1600,6 +1629,110 @@ function useAsReference() {
     analysis: '',
   });
   renderRefList();
+}
+
+// ─── Ref Library Picker (import to generate view) ───
+
+let pickerSelected = new Set();
+
+async function openRefLibPicker() {
+  pickerSelected = new Set();
+  // Load ref library if not already loaded
+  if (!refLibLoaded) {
+    try {
+      const resp = await fetch('/api/ref-library');
+      const data = await resp.json();
+      refLibItems = data.items || [];
+      refLibLoaded = true;
+    } catch (err) {
+      alert('加载素材库失败: ' + err.message);
+      return;
+    }
+  }
+  renderPickerGrid();
+  document.getElementById('refLibPickerModal').classList.remove('opacity-0', 'pointer-events-none');
+}
+
+function closeRefLibPicker(e) {
+  if (e && e.target !== e.currentTarget) return;
+  document.getElementById('refLibPickerModal').classList.add('opacity-0', 'pointer-events-none');
+}
+
+function filterPickerItems() {
+  renderPickerGrid();
+}
+
+function getFilteredPickerItems() {
+  const style = document.getElementById('pickerStyleFilter').value;
+  const scene = document.getElementById('pickerSceneFilter').value;
+  return refLibItems.filter(item => {
+    if (style && item.tags?.style !== style) return false;
+    if (scene && item.tags?.scene !== scene) return false;
+    return true;
+  });
+}
+
+function renderPickerGrid() {
+  const items = getFilteredPickerItems();
+  const grid = document.getElementById('pickerGrid');
+  const empty = document.getElementById('pickerEmpty');
+  const countEl = document.getElementById('pickerCount');
+
+  countEl.textContent = `${items.length} 张素材`;
+
+  if (items.length === 0) {
+    grid.innerHTML = '';
+    grid.appendChild(empty);
+    empty.style.display = '';
+    return;
+  }
+  empty.style.display = 'none';
+
+  grid.innerHTML = items.map(item => {
+    const selected = pickerSelected.has(item.id);
+    const dims = (item.tags?.dimensions || []).join('·');
+    return `<div class="relative cursor-pointer rounded-lg overflow-hidden border-2 ${selected ? 'border-brand-500 ring-2 ring-brand-300' : 'border-transparent hover:border-gray-300'} transition-all" onclick="togglePickerItem('${item.id}')">
+      <img src="${item.url}" class="w-full aspect-square object-cover" loading="lazy" />
+      ${selected ? '<div class="absolute top-1 right-1 w-5 h-5 bg-brand-500 text-white rounded-full text-xs flex items-center justify-center">✓</div>' : ''}
+      ${dims ? `<div class="absolute bottom-0 left-0 right-0 bg-black/50 px-1.5 py-0.5"><span class="text-[10px] text-white/80">${dims}</span></div>` : ''}
+    </div>`;
+  }).join('');
+
+  updatePickerCount();
+}
+
+function togglePickerItem(id) {
+  if (pickerSelected.has(id)) {
+    pickerSelected.delete(id);
+  } else {
+    pickerSelected.add(id);
+  }
+  renderPickerGrid();
+}
+
+function updatePickerCount() {
+  const count = pickerSelected.size;
+  document.getElementById('pickerSelectedCount').textContent = `已选 ${count} 张`;
+  document.getElementById('pickerImportBtn').disabled = count === 0;
+}
+
+function importFromRefLib() {
+  if (pickerSelected.size === 0) return;
+  for (const id of pickerSelected) {
+    const item = refLibItems.find(i => i.id === id);
+    if (!item) continue;
+    // Avoid duplicate imports
+    if (references.some(r => r.imageUrl === item.url)) continue;
+    references.push({
+      imageUrl: item.url,
+      image: null,
+      focuses: item.tags?.dimensions || [],
+      supplement: '',
+      analysis: '',
+    });
+  }
+  renderRefList();
+  closeRefLibPicker();
 }
 
 // ─── Batch Edit Modal ───
