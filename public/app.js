@@ -1675,18 +1675,14 @@ function getFilteredPickerItems() {
 function renderPickerGrid() {
   const items = getFilteredPickerItems();
   const grid = document.getElementById('pickerGrid');
-  const empty = document.getElementById('pickerEmpty');
   const countEl = document.getElementById('pickerCount');
 
   countEl.textContent = `${items.length} 张素材`;
 
   if (items.length === 0) {
-    grid.innerHTML = '';
-    grid.appendChild(empty);
-    empty.style.display = '';
+    grid.innerHTML = '<p class="col-span-full text-center text-sm text-gray-400 py-8">素材库为空，请先添加素材</p>';
     return;
   }
-  empty.style.display = 'none';
 
   grid.innerHTML = items.map(item => {
     const selected = pickerSelected.has(item.id);
