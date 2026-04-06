@@ -17,13 +17,13 @@ module.exports = async function handler(req, res) {
   try {
     switch (req.method) {
       case 'GET':
-        return handleGet(req, res);
+        return await handleGet(req, res);
       case 'POST':
-        return handlePost(req, res);
+        return await handlePost(req, res);
       case 'PATCH':
-        return handlePatch(req, res);
+        return await handlePatch(req, res);
       case 'DELETE':
-        return handleDelete(req, res);
+        return await handleDelete(req, res);
       default:
         return res.status(405).json({ error: 'Method not allowed' });
     }
