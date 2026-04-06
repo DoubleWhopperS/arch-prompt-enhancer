@@ -793,6 +793,27 @@ async function loadGallery() {
     console.warn('[gallery] cloud load failed, falling back to localStorage:', err.message);
     try { galleryCache = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { galleryCache = []; }
   }
+
+  // Auto-migrate: localStorage → cloud (one-time)
+  if (!localStorage.getItem('gallery_migrated')) {
+    try {
+      const localItems = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+      if (localItems.length > 0) {
+        const cloudIds = new Set(galleryCache.map(i => i.id));
+        const newItems = localItems.filter(i => i.id && i.url && !cloudIds.has(i.id));
+        if (newItems.length > 0) {
+          galleryCache = [...newItems, ...galleryCache];
+          await syncGalleryToCloud(galleryCache);
+          console.log(`[gallery] migrated ${newItems.length} items from localStorage to cloud`);
+        }
+        localStorage.removeItem(STORAGE_KEY);
+      }
+    } catch (e) {
+      console.warn('[gallery] migration error:', e.message);
+    }
+    localStorage.setItem('gallery_migrated', '1');
+  }
+
   updateLibCount();
   return galleryCache;
 }
