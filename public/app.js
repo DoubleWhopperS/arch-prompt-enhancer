@@ -615,6 +615,8 @@ async function generateImages() {
       }
     }
     renderGallery();
+    // Flush all gallery changes to cloud in one atomic write
+    await flushGallery();
   } finally {
     btn.disabled = false;
     btn.innerHTML = generateBtnHTML();
@@ -658,8 +660,9 @@ function renderGallery() {
       : img.cdnStatus === 'failed'
       ? `<span class="absolute top-2 left-2 text-[10px] px-1.5 py-0.5 rounded bg-red-500/80 text-white backdrop-blur-sm cursor-pointer" onclick="event.stopPropagation(); retryDownload(${i})" title="临时链接可能过期，建议立即下载">
            CDN 失败 - 点击下载</span>`
-      : `<span class="absolute top-2 left-2 text-[10px] px-1.5 py-0.5 rounded bg-green-500/70 text-white backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity">
-           已保存</span>`;
+      : `<span class="absolute bottom-2 right-2 w-5 h-5 rounded-full bg-green-500/90 flex items-center justify-center shadow-sm" title="已保存到云端">
+           <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>
+         </span>`;
     return `
       <div class="img-card group aspect-[4/3] bg-gray-100 dark:bg-gray-800 relative" onclick="lightboxSource='generate'; openLightbox(${i})">
         <img src="${img.url}" class="w-full h-full object-cover" loading="lazy" />
@@ -864,6 +867,8 @@ async function syncGalleryToCloud(items) {
   }
 }
 
+let galleryDirty = false; // track if galleryCache has unsaved changes
+
 function saveToLibrary({ url, prompt, baseImageUrl, referenceUrls, model, ratio, size }) {
   const items = getLibrary();
   const newItem = {
@@ -879,13 +884,9 @@ function saveToLibrary({ url, prompt, baseImageUrl, referenceUrls, model, ratio,
   };
   items.unshift(newItem);
   galleryCache = items;
+  galleryDirty = true;
   updateLibCount();
-  // Async save to cloud
-  fetch('/api/gallery', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ items: [newItem] }),
-  }).catch(err => console.warn('[gallery] save failed:', err.message));
+  // No individual POST — will be synced in batch via flushGallery()
 }
 
 function updateLibraryUrl(oldUrl, newUrl) {
@@ -894,24 +895,30 @@ function updateLibraryUrl(oldUrl, newUrl) {
   if (!item) return;
   item.url = newUrl;
   galleryCache = items;
-  // Async update
-  fetch('/api/gallery', {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id: item.id, updates: { url: newUrl } }),
-  }).catch(err => console.warn('[gallery] url update failed:', err.message));
+  galleryDirty = true;
+  // No individual PATCH — will be synced in batch via flushGallery()
+}
+
+// Flush all pending gallery changes to cloud in one PUT
+async function flushGallery() {
+  if (!galleryDirty) return;
+  galleryDirty = false;
+  console.log(`[gallery] flushing ${galleryCache.length} items to cloud...`);
+  try {
+    await syncGalleryToCloud(galleryCache);
+    console.log('[gallery] ✅ cloud sync complete');
+  } catch (err) {
+    galleryDirty = true; // retry next time
+    console.warn('[gallery] cloud sync failed, will retry:', err.message);
+  }
 }
 
 function deleteFromLibrary(ids) {
   const idSet = new Set(Array.isArray(ids) ? ids : [ids]);
   galleryCache = getLibrary().filter(item => !idSet.has(item.id));
   updateLibCount();
-  // Async delete
-  fetch('/api/gallery', {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ids: [...idSet] }),
-  }).catch(err => console.warn('[gallery] delete failed:', err.message));
+  galleryDirty = true;
+  flushGallery();
 }
 
 function updateLibCount() {
@@ -2035,3 +2042,10 @@ async function submitRefBatchEdit() {
 
 loadGallery(); // async — loads cloud gallery, updates count
 initRefInlineDropZone();
+
+// Safety net: flush unsaved gallery data before page unload
+window.addEventListener('beforeunload', () => {
+  if (galleryDirty && galleryCache.length > 0) {
+    navigator.sendBeacon('/api/gallery-beacon', JSON.stringify({ items: galleryCache }));
+  }
+});
