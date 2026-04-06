@@ -213,7 +213,7 @@
 
         <!-- Reference images -->
         <details class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5">
-          <summary class="text-sm font-semibold text-gray-600 dark:text-gray-400 cursor-pointer">参考图 <span class="font-normal text-gray-400">(可选，标注关注点)</span></summary>
+          <summary class="text-sm font-semibold text-gray-600 dark:text-gray-400 cursor-pointer">参考图 <span class="font-normal text-gray-400">(可选，选择参考维度自动分析)</span></summary>
           <div class="mt-3 space-y-3">
             <div id="refList"></div>
             <div id="refDropZone" class="drop-zone border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-4 text-center cursor-pointer">
@@ -235,6 +235,14 @@
 
       <!-- Phase 2: Prompt -->
       <section id="promptPhase" class="phase">
+        <!-- Reference analyses (shown when refs exist) -->
+        <div id="refAnalysisSection" class="hidden mb-4">
+          <details class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5" open>
+            <summary class="text-sm font-semibold text-gray-600 dark:text-gray-400 cursor-pointer">参考图分析结果 <span class="font-normal text-gray-400">(可编辑后重新生成)</span></summary>
+            <div id="refAnalysisContent" class="mt-3 space-y-3"></div>
+          </details>
+        </div>
+
         <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5">
           <div class="flex items-center justify-between mb-3">
             <h2 class="text-sm font-semibold text-gray-600 dark:text-gray-400">Enhanced Prompt</h2>

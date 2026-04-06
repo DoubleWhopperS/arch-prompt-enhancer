@@ -17,7 +17,7 @@ let batchSelected = new Set(); // set of library item ids
 let lightboxSource = 'generate'; // which view opened the lightbox
 let lightboxLibItems = [];      // flat list of lib items for lightbox nav
 
-const FOCUS_OPTIONS = ['光线', '色调', '材质', '氛围', '配景', '构图', '空气感'];
+const FOCUS_OPTIONS = ['光线', '色调', '材质', '建筑特征', '环境配景'];
 
 // 出图风格提示词库 — 选择后自动注入到设计意图中
 const RENDER_STYLES = {
@@ -209,7 +209,7 @@ refInput.addEventListener('change', (e) => { if (e.target.files[0]) handleRefFil
 async function handleRefFile(file) {
   const reader = new FileReader();
   reader.onload = async (e) => {
-    references.push({ image: await compressImage(e.target.result), focuses: [] });
+    references.push({ image: await compressImage(e.target.result), focuses: [], analysis: '', supplement: '' });
     renderRefList();
   };
   reader.readAsDataURL(file);
@@ -224,19 +224,28 @@ function toggleFocus(refIndex, focus) {
   renderRefList();
 }
 
+function updateRefSupplement(refIndex, value) {
+  references[refIndex].supplement = value;
+}
+
 function renderRefList() {
   document.getElementById('refList').innerHTML = references.map((ref, i) => `
-    <div class="flex gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-      <img src="${ref.image}" class="w-16 h-16 object-cover rounded flex-shrink-0" />
-      <div class="flex-1 min-w-0">
-        <div class="flex items-center justify-between mb-1.5">
-          <span class="text-xs text-gray-400">参考图 ${i + 1}</span>
-          <button onclick="removeRef(${i})" class="text-xs text-red-400 hover:text-red-600">移除</button>
-        </div>
-        <div class="flex flex-wrap gap-1">
-          ${FOCUS_OPTIONS.map(f => `<span class="focus-tag text-xs px-2 py-0.5 rounded-full border border-gray-300 dark:border-gray-600 ${ref.focuses.includes(f) ? 'active' : ''}" onclick="toggleFocus(${i},'${f}')">${f}</span>`).join('')}
+    <div class="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg space-y-2">
+      <div class="flex gap-3">
+        <img src="${ref.image}" class="w-16 h-16 object-cover rounded flex-shrink-0" />
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="text-xs text-gray-400">参考图 ${i + 1}</span>
+            <button onclick="removeRef(${i})" class="text-xs text-red-400 hover:text-red-600">移除</button>
+          </div>
+          <div class="flex flex-wrap gap-1">
+            ${FOCUS_OPTIONS.map(f => `<span class="focus-tag text-xs px-2 py-0.5 rounded-full border border-gray-300 dark:border-gray-600 ${ref.focuses.includes(f) ? 'active' : ''}" onclick="toggleFocus(${i},'${f}')">${f}</span>`).join('')}
+          </div>
         </div>
       </div>
+      <input type="text" placeholder="补充说明（可选，如：参考其暖色调木格栅材质）"
+        class="w-full text-xs px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900"
+        value="${escapeHtml(ref.supplement || '')}" onchange="updateRefSupplement(${i}, this.value)" />
     </div>
   `).join('');
 }
@@ -258,6 +267,61 @@ document.getElementById('countSelector').addEventListener('click', (e) => {
 // Enhance Prompt
 // ═══════════════════════════════════════════════════════
 
+// ─── SSE helper: read stream and call onData for each parsed event ───
+async function readSSE(resp, onData) {
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      try { onData(JSON.parse(line.slice(6))); } catch (e) { /* ignore */ }
+    }
+  }
+}
+
+// ─── Phase A: Analyze reference images ───
+async function analyzeRef(imageUrl, dimensions, supplement) {
+  const resp = await fetch('/api/analyze-ref', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ imageUrl, dimensions, supplement }),
+  });
+  let result = '';
+  await readSSE(resp, (data) => {
+    if (data.content) result += data.content;
+    if (data.error) result += `\n[Error: ${data.error}]`;
+  });
+  return result.trim();
+}
+
+// ─── Render reference analysis results ───
+function renderRefAnalyses() {
+  const refsWithAnalysis = references.filter(r => r.analysis);
+  const section = document.getElementById('refAnalysisSection');
+  const content = document.getElementById('refAnalysisContent');
+  if (refsWithAnalysis.length === 0) { section.classList.add('hidden'); return; }
+  section.classList.remove('hidden');
+  content.innerHTML = refsWithAnalysis.map((ref, idx) => {
+    const refIdx = references.indexOf(ref);
+    const dims = ref.focuses.join('、');
+    return `
+    <div class="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+      <div class="flex items-center gap-2 mb-2">
+        <img src="${ref.image}" class="w-10 h-10 object-cover rounded flex-shrink-0" />
+        <span class="text-xs text-gray-400">参考图 ${refIdx + 1}（${dims}）</span>
+      </div>
+      <textarea class="w-full text-xs px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 resize-y"
+        rows="3" oninput="references[${refIdx}].analysis = this.value">${escapeHtml(ref.analysis)}</textarea>
+    </div>`;
+  }).join('');
+}
+
 async function enhance() {
   const intent = document.getElementById('intent').value.trim();
   if (!intent && !baseImageData) { alert('请至少填写设计意图或上传基础图'); return; }
@@ -273,6 +337,8 @@ async function enhance() {
   showPhase('promptPhase');
 
   try {
+    // ─── Upload images ───
+    const refsWithFocuses = references.filter(r => r.focuses.length > 0);
     const totalUploads = (baseImageData && !baseImageUrl ? 1 : 0) + references.length;
     let uploadIdx = 0;
 
@@ -285,15 +351,37 @@ async function enhance() {
     }
     const refUrls = [];
     for (let i = 0; i < references.length; i++) {
-      uploadIdx++;
-      output.value += `[${uploadIdx}/${totalUploads}] 上传参考图 ${i + 1}...\n`;
-      btn.innerHTML = spinnerHTML(`上传 ${uploadIdx}/${totalUploads}...`);
-      refUrls.push(await uploadToCDN(references[i].image, `ref_${i + 1}`));
-      output.value += `  ✓ 参考图 ${i + 1} 已上传\n`;
+      if (!references[i].imageUrl) {
+        uploadIdx++;
+        output.value += `[${uploadIdx}/${totalUploads}] 上传参考图 ${i + 1}...\n`;
+        btn.innerHTML = spinnerHTML(`上传 ${uploadIdx}/${totalUploads}...`);
+        references[i].imageUrl = await uploadToCDN(references[i].image, `ref_${i + 1}`);
+        output.value += `  ✓ 参考图 ${i + 1} 已上传\n`;
+      }
+      refUrls.push(references[i].imageUrl);
     }
 
-    if (totalUploads > 0) output.value += `\n图片上传完成，生成 Prompt 中...\n\n`;
+    // ─── Phase A: Analyze reference images (parallel) ───
+    if (refsWithFocuses.length > 0) {
+      output.value += `\n分析参考图...（${refsWithFocuses.length} 张）\n`;
+      btn.innerHTML = spinnerHTML('分析参考图...');
 
+      const analysisTasks = refsWithFocuses.map(async (ref) => {
+        const idx = references.indexOf(ref);
+        const supplement = ref.supplement ? `\n补充要求：${ref.supplement}` : '';
+        output.value += `  ⏳ 参考图 ${idx + 1}（${ref.focuses.join('、')}）分析中...\n`;
+        ref.analysis = await analyzeRef(ref.imageUrl || refUrls[idx], ref.focuses, supplement);
+        output.value += `  ✓ 参考图 ${idx + 1} 分析完成\n`;
+      });
+      await Promise.all(analysisTasks);
+
+      renderRefAnalyses();
+      output.value += `\n参考图分析完成，生成 Prompt 中...\n\n`;
+    } else if (totalUploads > 0) {
+      output.value += `\n图片上传完成，生成 Prompt 中...\n\n`;
+    }
+
+    // ─── Phase B: Generate enhanced prompt ───
     btn.innerHTML = spinnerHTML('生成中...');
 
     const params = {
@@ -301,7 +389,6 @@ async function enhance() {
       outputMethod: document.getElementById('outputMethod')?.value || '',
     };
 
-    // 出图风格注入：选择风格后将浓缩提示词追加到设计意图
     const renderStyleKey = document.getElementById('renderStyle')?.value || '';
     let finalIntent = intent;
     if (renderStyleKey && RENDER_STYLES[renderStyleKey]) {
@@ -310,45 +397,32 @@ async function enhance() {
       finalIntent = finalIntent ? `${finalIntent}\n\n${styleSection}` : styleSection;
     }
 
+    // Build reference data with analyses
+    const refData = references.map((r, i) => ({
+      imageUrl: refUrls[i] || null,
+      focuses: r.focuses,
+      analysis: r.analysis || '',
+    }));
+
     const body = {
       intent: finalIntent,
       params,
       baseImageUrl: baseImageUrl || null,
-      references: references.map((r, i) => ({
-        imageUrl: refUrls[i] || null,
-        focuses: r.focuses,
-      })),
+      references: refData,
     };
 
     output.value = '';
 
-    console.log('[enhance] sending request, baseImageUrl:', baseImageUrl);
     const resp = await fetch('/api/enhance', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    console.log('[enhance] response status:', resp.status, resp.headers.get('content-type'));
 
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        try {
-          const data = JSON.parse(line.slice(6));
-          if (data.content) { output.value += data.content; updateWordCount(); }
-          if (data.error) output.value += `\n[Error: ${data.error}]`;
-        } catch (e) { /* ignore parse errors */ }
-      }
-    }
+    await readSSE(resp, (data) => {
+      if (data.content) { output.value += data.content; updateWordCount(); }
+      if (data.error) output.value += `\n[Error: ${data.error}]`;
+    });
   } catch (err) {
     output.value = `[Error: ${err.message}]`;
   } finally {
@@ -369,7 +443,7 @@ function updateWordCount() {
   const total = cjk + engWords;
   const el = document.getElementById('wordCount');
   el.textContent = `${total} 字`;
-  el.className = `text-xs tabular-nums ${total > 200 ? 'text-red-500' : total > 150 ? 'text-amber-500' : 'text-gray-400'}`;
+  el.className = `text-xs tabular-nums ${total > 300 ? 'text-red-500' : total > 250 ? 'text-amber-500' : 'text-gray-400'}`;
 }
 
 function copyPrompt() {

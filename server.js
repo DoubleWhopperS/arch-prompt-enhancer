@@ -4,6 +4,7 @@ const path = require('path');
 const { enhancePromptStream } = require('./lib/enhancer');
 const uploadHandler = require('./api/upload');
 const generateHandler = require('./api/generate');
+const analyzeRefHandler = require('./api/analyze-ref');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -45,6 +46,9 @@ app.post('/api/enhance', async (req, res) => {
 
 // ─── CDN 图片上传 ───
 app.post('/api/upload', uploadHandler);
+
+// ─── SSE: 参考图分析 ───
+app.post('/api/analyze-ref', analyzeRefHandler);
 
 // ─── SSE: 图片生成 ───
 app.post('/api/generate', generateHandler);
