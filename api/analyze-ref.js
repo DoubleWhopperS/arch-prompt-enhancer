@@ -27,7 +27,7 @@ module.exports = async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { imageUrl, dimensions } = req.body;
+  const { imageUrl, dimensions, supplement } = req.body;
 
   if (!imageUrl || !dimensions || dimensions.length === 0) {
     return res.status(400).json({ error: '请提供参考图和分析维度' });
@@ -43,7 +43,10 @@ module.exports = async function handler(req, res) {
 
   const client = new OpenAI({ apiKey, baseURL, timeout: 120000 });
 
-  const userText = `请分析这张建筑效果图的以下维度：${dimensions.join('、')}`;
+  let userText = `请分析这张建筑效果图的以下维度：${dimensions.join('、')}`;
+  if (supplement) {
+    userText += `\n\n补充说明：${supplement}`;
+  }
 
   const userContent = [
     { type: 'text', text: userText },

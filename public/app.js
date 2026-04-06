@@ -1336,8 +1336,15 @@ function addRefUploadFiles(fileList) {
   renderRefUploadPreview();
 }
 
+let refUploadObjectUrls = [];
+
 function renderRefUploadPreview() {
   const preview = document.getElementById('refUploadPreview');
+
+  // 释放上一轮的 Object URLs
+  for (const u of refUploadObjectUrls) URL.revokeObjectURL(u);
+  refUploadObjectUrls = [];
+
   if (refUploadFiles.length === 0) {
     preview.classList.add('hidden');
     document.getElementById('refUploadSubmitBtn').disabled = true;
@@ -1348,6 +1355,7 @@ function renderRefUploadPreview() {
 
   preview.innerHTML = refUploadFiles.map((f, i) => {
     const url = URL.createObjectURL(f);
+    refUploadObjectUrls.push(url);
     return `<div class="relative group">
       <img src="${url}" class="w-full aspect-square object-cover rounded-lg" />
       <button onclick="removeRefUploadFile(${i})" class="absolute top-1 right-1 w-5 h-5 bg-black/50 text-white rounded-full text-xs opacity-0 group-hover:opacity-100 transition-opacity">&times;</button>
