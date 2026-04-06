@@ -1,6 +1,5 @@
 {
   "dependencies": {
-    "openai": "^4.78.0",
-    "@vercel/blob": "^2.3.3"
+    "openai": "^4.78.0"
   }
 }
