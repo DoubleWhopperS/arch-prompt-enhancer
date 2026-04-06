@@ -50,6 +50,8 @@ async function createGeminiTask(token, modelId, prompt, baseImageUrl, referenceU
   }
   parts.push({ text: prompt });
 
+  console.log(`[generate] Gemini parts: ${parts.length} (base=${baseImageUrl ? 1 : 0}, refs=${referenceUrls?.length || 0}, text=1)`);
+
   const resp = await fetch(`${TAMS_BASE}/v2/gcp/genai/models/generate-content/async/create`, {
     method: 'POST',
     headers: tamsHeaders(token),
@@ -226,7 +228,7 @@ module.exports = async function handler(req, res) {
   res.flushHeaders?.();
 
   sendSSE(res, { type: 'info', model: modelInfo.name, count: imageCount });
-  console.log(`[generate] model=${modelInfo.name} count=${imageCount} ratio=${ratio} size=${size} mode=generate-then-upload`);
+  console.log(`[generate] model=${modelInfo.name} count=${imageCount} ratio=${ratio} size=${size} refs=${(referenceUrls||[]).length} mode=generate-then-upload`);
 
   const cdnToken = process.env.TENSORART_BEARER_TOKEN;
   const shared = { tamsToken, modelInfo, prompt, baseImageUrl, referenceUrls: referenceUrls || [], ratio, size, res, total: imageCount };
