@@ -66,7 +66,11 @@ function switchView(view) {
   document.getElementById('viewLibrary').classList.toggle('hidden', view !== 'library');
   document.getElementById('viewRefLibrary').classList.toggle('hidden', view !== 'reflib');
 
-  if (view === 'library') { loadGallery().then(() => renderLibrary()); }
+  if (view === 'library') {
+    // If dirty, flush first, then reload from cloud to confirm
+    const load = galleryDirty ? flushGallery().then(() => loadGallery()) : loadGallery();
+    load.then(() => renderLibrary());
+  }
   if (view === 'reflib') loadRefLibrary();
 }
 
@@ -518,6 +522,12 @@ async function generateImages() {
   const prompt = document.getElementById('promptOutput').value.trim();
   if (!prompt) { alert('请先生成或填写 Prompt'); return; }
 
+  // Ensure gallery is loaded from cloud before generating (prevents race condition)
+  if (galleryLoadPromise) {
+    await galleryLoadPromise;
+    galleryLoadPromise = null;
+  }
+
   const btn = document.getElementById('generateBtn');
   const moreBtn = document.getElementById('generateMoreBtn');
   btn.disabled = true;
@@ -806,6 +816,8 @@ async function downloadUrl(url, filename) {
 // ═══════════════════════════════════════════════════════
 
 let galleryCache = null; // in-memory cache, loaded once per session
+let galleryLoaded = false; // true once initial load completes
+let galleryLoadPromise = null; // awaitable promise for initial load
 
 function getLibrary() {
   return galleryCache || [];
@@ -815,11 +827,20 @@ async function loadGallery() {
   try {
     const resp = await fetch('/api/gallery');
     const data = await resp.json();
-    galleryCache = data.items || [];
+    // Only overwrite cache if there are no dirty local changes
+    if (!galleryDirty) {
+      galleryCache = data.items || [];
+    } else {
+      // Merge: keep local dirty cache, but log cloud state for debugging
+      console.log(`[gallery] cloud has ${(data.items || []).length} items, but local cache is dirty (${galleryCache.length} items) — keeping local`);
+    }
   } catch (err) {
     console.warn('[gallery] cloud load failed, falling back to localStorage:', err.message);
-    try { galleryCache = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { galleryCache = []; }
+    if (!galleryDirty) {
+      try { galleryCache = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { galleryCache = []; }
+    }
   }
+  galleryLoaded = true;
 
   // Auto-migrate: localStorage → cloud (one-time)
   const migrated = localStorage.getItem('gallery_migrated');
@@ -856,21 +877,25 @@ async function loadGallery() {
 async function syncGalleryToCloud(items) {
   galleryCache = items;
   updateLibCount();
-  // Fire-and-forget: sync to cloud without blocking UI
-  try {
-    await fetch('/api/gallery', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items }),
-    });
-  } catch (err) {
-    console.warn('[gallery] cloud sync failed:', err.message);
+  const resp = await fetch('/api/gallery', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items }),
+  });
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '');
+    throw new Error(`PUT /api/gallery failed: HTTP ${resp.status} ${text.slice(0, 200)}`);
   }
 }
 
 let galleryDirty = false; // track if galleryCache has unsaved changes
 
 function saveToLibrary({ url, prompt, baseImageUrl, referenceUrls, model, ratio, size }) {
+  // Ensure galleryCache is initialized (avoid writing to empty cache if load hasn't completed)
+  if (galleryCache === null) {
+    console.warn('[gallery] saveToLibrary called before initial load — initializing empty cache');
+    galleryCache = [];
+  }
   const items = getLibrary();
   const newItem = {
     id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
@@ -887,6 +912,7 @@ function saveToLibrary({ url, prompt, baseImageUrl, referenceUrls, model, ratio,
   galleryCache = items;
   galleryDirty = true;
   updateLibCount();
+  console.log(`[gallery] saved item ${newItem.id}, cache now has ${galleryCache.length} items`);
   // No individual POST — will be synced in batch via flushGallery()
 }
 
@@ -902,15 +928,26 @@ function updateLibraryUrl(oldUrl, newUrl) {
 
 // Flush all pending gallery changes to cloud in one PUT
 async function flushGallery() {
-  if (!galleryDirty) return;
-  galleryDirty = false;
+  if (!galleryDirty) {
+    console.log('[gallery] flushGallery: nothing dirty, skipping');
+    return;
+  }
   console.log(`[gallery] flushing ${galleryCache.length} items to cloud...`);
   try {
     await syncGalleryToCloud(galleryCache);
-    console.log('[gallery] ✅ cloud sync complete');
+    galleryDirty = false;
+    console.log(`[gallery] ✅ cloud sync complete (${galleryCache.length} items)`);
   } catch (err) {
-    galleryDirty = true; // retry next time
-    console.warn('[gallery] cloud sync failed, will retry:', err.message);
+    // galleryDirty stays true — will retry next time
+    console.error('[gallery] ❌ cloud sync FAILED:', err.message);
+    // Notify user so they don't close the page
+    try {
+      const toast = document.createElement('div');
+      toast.className = 'fixed top-4 right-4 bg-red-600 text-white px-4 py-2 rounded-lg shadow-lg z-[9999] text-sm';
+      toast.textContent = '⚠️ 图库同步失败，请勿关闭页面，稍后自动重试';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 8000);
+    } catch (_) {}
   }
 }
 
@@ -2041,7 +2078,7 @@ async function submitRefBatchEdit() {
 // Init
 // ═══════════════════════════════════════════════════════
 
-loadGallery(); // async — loads cloud gallery, updates count
+galleryLoadPromise = loadGallery(); // async — loads cloud gallery, updates count
 initRefInlineDropZone();
 
 // Safety net: flush unsaved gallery data before page unload
