@@ -66,7 +66,7 @@ function switchView(view) {
   document.getElementById('viewLibrary').classList.toggle('hidden', view !== 'library');
   document.getElementById('viewRefLibrary').classList.toggle('hidden', view !== 'reflib');
 
-  if (view === 'library') renderLibrary();
+  if (view === 'library') { loadGallery().then(() => renderLibrary()); }
   if (view === 'reflib') loadRefLibrary();
 }
 
@@ -775,32 +775,46 @@ async function downloadUrl(url, filename) {
 }
 
 // ═══════════════════════════════════════════════════════
-// Library — Persistent Storage (localStorage)
+// Library — Cloud Storage (Vercel Blob) + Local Cache
 // ═══════════════════════════════════════════════════════
 
+let galleryCache = null; // in-memory cache, loaded once per session
+
 function getLibrary() {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-  } catch { return []; }
+  return galleryCache || [];
 }
 
-function setLibrary(items) {
+async function loadGallery() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-  } catch (e) {
-    // localStorage quota exceeded — trim oldest items and retry
-    if (e.name === 'QuotaExceededError' && items.length > 10) {
-      items.splice(Math.floor(items.length * 0.7)); // keep newest 70%
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(items)); } catch { /* give up */ }
-      console.warn('[library] storage quota exceeded, trimmed to', items.length, 'items');
-    }
+    const resp = await fetch('/api/gallery');
+    const data = await resp.json();
+    galleryCache = data.items || [];
+  } catch (err) {
+    console.warn('[gallery] cloud load failed, falling back to localStorage:', err.message);
+    try { galleryCache = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { galleryCache = []; }
   }
   updateLibCount();
+  return galleryCache;
+}
+
+async function syncGalleryToCloud(items) {
+  galleryCache = items;
+  updateLibCount();
+  // Fire-and-forget: sync to cloud without blocking UI
+  try {
+    await fetch('/api/gallery', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items }),
+    });
+  } catch (err) {
+    console.warn('[gallery] cloud sync failed:', err.message);
+  }
 }
 
 function saveToLibrary({ url, prompt, baseImageUrl, referenceUrls, model, ratio, size }) {
   const items = getLibrary();
-  items.unshift({
+  const newItem = {
     id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     url,
     prompt: prompt || '',
@@ -810,23 +824,42 @@ function saveToLibrary({ url, prompt, baseImageUrl, referenceUrls, model, ratio,
     ratio: ratio || '',
     size: size || '',
     createdAt: new Date().toISOString(),
-  });
-  setLibrary(items);
+  };
+  items.unshift(newItem);
+  galleryCache = items;
+  updateLibCount();
+  // Async save to cloud
+  fetch('/api/gallery', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items: [newItem] }),
+  }).catch(err => console.warn('[gallery] save failed:', err.message));
 }
 
 function updateLibraryUrl(oldUrl, newUrl) {
   const items = getLibrary();
   const item = items.find(i => i.url === oldUrl);
-  if (item) {
-    item.url = newUrl;
-    setLibrary(items);
-  }
+  if (!item) return;
+  item.url = newUrl;
+  galleryCache = items;
+  // Async update
+  fetch('/api/gallery', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: item.id, updates: { url: newUrl } }),
+  }).catch(err => console.warn('[gallery] url update failed:', err.message));
 }
 
 function deleteFromLibrary(ids) {
   const idSet = new Set(Array.isArray(ids) ? ids : [ids]);
-  const items = getLibrary().filter(item => !idSet.has(item.id));
-  setLibrary(items);
+  galleryCache = getLibrary().filter(item => !idSet.has(item.id));
+  updateLibCount();
+  // Async delete
+  fetch('/api/gallery', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids: [...idSet] }),
+  }).catch(err => console.warn('[gallery] delete failed:', err.message));
 }
 
 function updateLibCount() {
@@ -851,27 +884,26 @@ function exportLibrary() {
   URL.revokeObjectURL(a.href);
 }
 
-function importLibrary(event) {
+async function importLibrary(event) {
   const file = event.target.files[0];
   if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    try {
-      const imported = JSON.parse(e.target.result);
-      if (!Array.isArray(imported)) { alert('无效的图库文件'); return; }
-      const existing = getLibrary();
-      const existingIds = new Set(existing.map(item => item.id));
-      const newItems = imported.filter(item => item.id && item.url && !existingIds.has(item.id));
-      if (newItems.length === 0) { alert('没有新图片需要导入（全部已存在）'); return; }
-      setLibrary([...newItems, ...existing]);
-      renderLibrary();
-      updateLibCount();
-      alert(`成功导入 ${newItems.length} 张图片（跳过 ${imported.length - newItems.length} 张已存在）`);
-    } catch (err) {
-      alert('文件解析失败：' + err.message);
-    }
-  };
-  reader.readAsText(file);
+  const text = await file.text();
+  try {
+    const imported = JSON.parse(text);
+    if (!Array.isArray(imported)) { alert('无效的图库文件'); return; }
+    const existing = getLibrary();
+    const existingIds = new Set(existing.map(item => item.id));
+    const newItems = imported.filter(item => item.id && item.url && !existingIds.has(item.id));
+    if (newItems.length === 0) { alert('没有新图片需要导入（全部已存在）'); return; }
+    galleryCache = [...newItems, ...existing];
+    updateLibCount();
+    renderLibrary();
+    // Sync full list to cloud
+    await syncGalleryToCloud(galleryCache);
+    alert(`成功导入 ${newItems.length} 张图片（跳过 ${imported.length - newItems.length} 张已存在）`);
+  } catch (err) {
+    alert('文件解析失败：' + err.message);
+  }
   event.target.value = '';
 }
 
@@ -1949,5 +1981,5 @@ async function submitRefBatchEdit() {
 // Init
 // ═══════════════════════════════════════════════════════
 
-updateLibCount();
+loadGallery(); // async — loads cloud gallery, updates count
 initRefInlineDropZone();

@@ -6,6 +6,7 @@ const uploadHandler = require('./api/upload');
 const generateHandler = require('./api/generate');
 const analyzeRefHandler = require('./api/analyze-ref');
 const refLibraryHandler = require('./api/ref-library');
+const galleryHandler = require('./api/gallery');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -53,6 +54,9 @@ app.post('/api/analyze-ref', analyzeRefHandler);
 
 // ─── 参考图素材库 ───
 app.all('/api/ref-library', refLibraryHandler);
+
+// ─── 图库（云端同步）───
+app.all('/api/gallery', galleryHandler);
 
 // ─── SSE: 图片生成 ───
 app.post('/api/generate', generateHandler);
