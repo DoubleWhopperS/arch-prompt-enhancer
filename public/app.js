@@ -795,16 +795,22 @@ async function loadGallery() {
   }
 
   // Auto-migrate: localStorage → cloud (one-time)
-  if (!localStorage.getItem('gallery_migrated')) {
+  const migrated = localStorage.getItem('gallery_migrated');
+  const localRaw = localStorage.getItem(STORAGE_KEY);
+  console.log(`[gallery] cloud=${galleryCache.length} items, localStorage=${localRaw ? JSON.parse(localRaw).length : 0} items, migrated=${migrated}`);
+
+  if (!migrated && localRaw) {
     try {
-      const localItems = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+      const localItems = JSON.parse(localRaw);
       if (localItems.length > 0) {
         const cloudIds = new Set(galleryCache.map(i => i.id));
         const newItems = localItems.filter(i => i.id && i.url && !cloudIds.has(i.id));
         if (newItems.length > 0) {
           galleryCache = [...newItems, ...galleryCache];
           await syncGalleryToCloud(galleryCache);
-          console.log(`[gallery] migrated ${newItems.length} items from localStorage to cloud`);
+          console.log(`[gallery] ✅ migrated ${newItems.length} items from localStorage to cloud`);
+        } else {
+          console.log('[gallery] all localStorage items already in cloud, skipping');
         }
         localStorage.removeItem(STORAGE_KEY);
       }
@@ -812,6 +818,8 @@ async function loadGallery() {
       console.warn('[gallery] migration error:', e.message);
     }
     localStorage.setItem('gallery_migrated', '1');
+  } else if (migrated && galleryCache.length > 0) {
+    console.log(`[gallery] ✅ data loaded from cloud (${galleryCache.length} items)`);
   }
 
   updateLibCount();
