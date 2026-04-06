@@ -576,7 +576,7 @@ async function generateImages() {
             generatedImages[idx].message = data.message;
             renderGallery();
           } else if (data.type === 'image' && generatedImages[idx]) {
-            generatedImages[idx] = { url: data.url, status: 'done', message: '' };
+            generatedImages[idx] = { url: data.url, status: 'done', message: '', cdnStatus: 'pending' };
             renderGallery();
             // Save to library with temp URL (will be updated by image_updated)
             saveToLibrary({
@@ -592,6 +592,7 @@ async function generateImages() {
             // CDN upload complete — update URL in gallery and library
             const oldUrl = generatedImages[idx].url;
             generatedImages[idx].url = data.url;
+            generatedImages[idx].cdnStatus = 'done';
             renderGallery();
             updateLibraryUrl(oldUrl, data.url);
           } else if (data.type === 'error' && generatedImages[idx]) {
@@ -605,6 +606,12 @@ async function generateImages() {
     for (let i = startIdx; i < generatedImages.length; i++) {
       if (generatedImages[i].status === 'loading') {
         generatedImages[i] = { url: null, status: 'error', message: err.message };
+      }
+    }
+    // Mark images that never got CDN update as failed
+    for (let i = startIdx; i < generatedImages.length; i++) {
+      if (generatedImages[i].cdnStatus === 'pending') {
+        generatedImages[i].cdnStatus = 'failed';
       }
     }
     renderGallery();
@@ -644,9 +651,19 @@ function renderGallery() {
           </div>
         </div>`;
     }
+    const cdnBadge = img.cdnStatus === 'pending'
+      ? `<span class="absolute top-2 left-2 text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/80 text-white backdrop-blur-sm flex items-center gap-1">
+           <svg class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+           上传中</span>`
+      : img.cdnStatus === 'failed'
+      ? `<span class="absolute top-2 left-2 text-[10px] px-1.5 py-0.5 rounded bg-red-500/80 text-white backdrop-blur-sm cursor-pointer" onclick="event.stopPropagation(); retryDownload(${i})" title="临时链接可能过期，建议立即下载">
+           CDN 失败 - 点击下载</span>`
+      : `<span class="absolute top-2 left-2 text-[10px] px-1.5 py-0.5 rounded bg-green-500/70 text-white backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity">
+           已保存</span>`;
     return `
-      <div class="img-card aspect-[4/3] bg-gray-100 dark:bg-gray-800" onclick="lightboxSource='generate'; openLightbox(${i})">
+      <div class="img-card group aspect-[4/3] bg-gray-100 dark:bg-gray-800 relative" onclick="lightboxSource='generate'; openLightbox(${i})">
         <img src="${img.url}" class="w-full h-full object-cover" loading="lazy" />
+        ${cdnBadge}
         <div class="overlay">
           <button onclick="downloadImage(event, ${i})" class="bg-white/20 hover:bg-white/30 text-white p-2 rounded-lg backdrop-blur" title="下载">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
@@ -744,6 +761,12 @@ document.addEventListener('keydown', (e) => {
 // ═══════════════════════════════════════════════════════
 // Download
 // ═══════════════════════════════════════════════════════
+
+function retryDownload(index) {
+  const img = generatedImages[index];
+  if (!img?.url) return;
+  downloadUrl(img.url, `rendering_${index + 1}_temp_${Date.now()}.png`);
+}
 
 async function downloadImage(e, index) {
   e.stopPropagation();
