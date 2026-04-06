@@ -1427,6 +1427,66 @@ function fileToDataUrl(file) {
   });
 }
 
+// ─── Inline Drop Zone (quick upload) ───
+
+function initRefInlineDropZone() {
+  const dz = document.getElementById('refInlineDropZone');
+  if (!dz) return;
+  dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.classList.add('dragover'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+  dz.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dz.classList.remove('dragover');
+    handleInlineRefUploadFiles(e.dataTransfer.files);
+  });
+}
+
+function handleInlineRefUpload(event) {
+  handleInlineRefUploadFiles(event.target.files);
+  event.target.value = '';
+}
+
+async function handleInlineRefUploadFiles(fileList) {
+  const files = [...fileList].filter(f => f.type.startsWith('image/'));
+  if (files.length === 0) return;
+
+  const progress = document.getElementById('refInlineUploadProgress');
+  const progressText = document.getElementById('refInlineUploadText');
+  progress.classList.remove('hidden');
+
+  try {
+    const images = [];
+    for (let i = 0; i < files.length; i++) {
+      progressText.textContent = `读取图片 ${i + 1}/${files.length}...`;
+      const dataUrl = await fileToDataUrl(files[i]);
+      images.push({
+        data: dataUrl,
+        tags: { style: '', dimensions: [], scene: '', custom: [] },
+        description: '',
+      });
+    }
+
+    progressText.textContent = `上传 ${images.length} 张图片...`;
+    const resp = await fetch('/api/ref-library', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ images }),
+    });
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error);
+
+    if (data.added) {
+      refLibItems.unshift(...data.added);
+      updateRefLibCount();
+      renderRefLibrary();
+    }
+  } catch (err) {
+    alert('上传失败：' + err.message);
+  } finally {
+    progress.classList.add('hidden');
+  }
+}
+
 // ─── Detail Modal ───
 
 function openRefDetailModal(id) {
@@ -1613,3 +1673,4 @@ async function submitRefBatchEdit() {
 // ═══════════════════════════════════════════════════════
 
 updateLibCount();
+initRefInlineDropZone();

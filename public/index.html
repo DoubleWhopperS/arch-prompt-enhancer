@@ -505,7 +505,23 @@
       <div id="refLibEmpty" class="hidden py-20 text-center">
         <svg class="mx-auto h-16 w-16 text-gray-200 dark:text-gray-700 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
         <p class="text-gray-400 dark:text-gray-500 text-sm">还没有添加参考素材</p>
-        <p class="text-gray-300 dark:text-gray-600 text-xs mt-1">点击「添加素材」上传优质参考图</p>
+        <p class="text-gray-300 dark:text-gray-600 text-xs mt-1">拖放图片到下方区域，或点击「添加素材」上传</p>
+      </div>
+
+      <!-- Inline drop zone -->
+      <div id="refInlineDropZone" class="drop-zone border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-xl mt-6 p-8 text-center cursor-pointer transition-all hover:border-brand-400"
+        onclick="document.getElementById('refInlineFileInput').click()">
+        <svg class="mx-auto h-8 w-8 text-gray-300 dark:text-gray-600 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+        <p class="text-sm text-gray-400">拖放图片到此处快速上传</p>
+        <p class="text-xs text-gray-300 dark:text-gray-600 mt-1">支持多选，上传后可在详情中编辑标签</p>
+        <input id="refInlineFileInput" type="file" accept="image/*" multiple class="hidden" onchange="handleInlineRefUpload(event)" />
+        <!-- Upload progress -->
+        <div id="refInlineUploadProgress" class="hidden mt-4">
+          <div class="flex items-center justify-center gap-2 text-sm text-brand-600">
+            <div class="w-4 h-4 border-2 border-gray-300 border-t-brand-500 rounded-full animate-spin"></div>
+            <span id="refInlineUploadText">上传中...</span>
+          </div>
+        </div>
       </div>
     </div>
   </div>
