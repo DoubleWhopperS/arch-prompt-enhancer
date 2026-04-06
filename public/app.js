@@ -191,6 +191,53 @@ function removeBaseImage(e) {
 }
 
 // ═══════════════════════════════════════════════════════
+// Image Preview & Download (generate view)
+// ═══════════════════════════════════════════════════════
+
+function previewGenerateImage(index, type) {
+  let src;
+  if (type === 'base') {
+    src = baseImageUrl || baseImageData;
+  } else {
+    const ref = references[index];
+    src = ref?.imageUrl || ref?.image;
+  }
+  if (!src) return;
+  document.getElementById('imagePreviewImg').src = src;
+  document.getElementById('imagePreviewOverlay').classList.remove('opacity-0', 'pointer-events-none');
+}
+
+async function downloadGenerateImage(type) {
+  let src, name;
+  if (type === 'base') {
+    src = baseImageUrl || baseImageData;
+    name = 'base_image';
+  } else {
+    return; // ref download handled via previewGenerateImage context
+  }
+  if (!src) return;
+  try {
+    if (src.startsWith('data:')) {
+      const a = document.createElement('a');
+      a.href = src;
+      a.download = `${name}.jpg`;
+      a.click();
+    } else {
+      const resp = await fetch(src);
+      const blob = await resp.blob();
+      const ext = blob.type.includes('png') ? 'png' : 'jpg';
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${name}.${ext}`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+  } catch {
+    window.open(src, '_blank');
+  }
+}
+
+// ═══════════════════════════════════════════════════════
 // Reference Images
 // ═══════════════════════════════════════════════════════
 
@@ -229,10 +276,17 @@ function updateRefSupplement(refIndex, value) {
 }
 
 function renderRefList() {
-  document.getElementById('refList').innerHTML = references.map((ref, i) => `
+  document.getElementById('refList').innerHTML = references.map((ref, i) => {
+    const imgSrc = ref.imageUrl || ref.image || '';
+    return `
     <div class="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg space-y-2">
       <div class="flex gap-3">
-        <img src="${ref.image}" class="w-16 h-16 object-cover rounded flex-shrink-0" />
+        <div class="relative group flex-shrink-0">
+          <img src="${imgSrc}" class="w-16 h-16 object-cover rounded cursor-pointer" onclick="previewGenerateImage(${i}, 'ref')" />
+          <div class="absolute inset-0 bg-black/0 group-hover:bg-black/30 rounded transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+            <span class="text-white text-xs">🔍</span>
+          </div>
+        </div>
         <div class="flex-1 min-w-0">
           <div class="flex items-center justify-between mb-1.5">
             <span class="text-xs text-gray-400">参考图 ${i + 1}</span>
@@ -247,7 +301,7 @@ function renderRefList() {
         class="w-full text-xs px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900"
         value="${escapeHtml(ref.supplement || '')}" onchange="updateRefSupplement(${i}, this.value)" />
     </div>
-  `).join('');
+  `}).join('');
 }
 
 // ═══════════════════════════════════════════════════════

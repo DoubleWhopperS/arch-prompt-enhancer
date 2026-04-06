@@ -172,9 +172,13 @@
                   <svg class="mx-auto h-10 w-10 text-gray-300 dark:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
                   <p class="text-sm text-gray-400">拖拽或点击上传草图/渲染图</p>
                 </div>
-                <div id="basePreview" class="hidden relative">
-                  <img id="baseImg" class="max-h-[200px] rounded-md mx-auto" />
+                <div id="basePreview" class="hidden relative group">
+                  <img id="baseImg" class="max-h-[200px] rounded-md mx-auto cursor-pointer" onclick="previewGenerateImage(-1, 'base')" />
                   <button onclick="removeBaseImage(event)" class="absolute top-1 right-1 bg-black/50 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs hover:bg-black/70">&times;</button>
+                  <div class="absolute bottom-2 right-2 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onclick="event.stopPropagation(); previewGenerateImage(-1, 'base')" class="w-7 h-7 bg-black/50 hover:bg-black/70 text-white rounded-lg flex items-center justify-center text-xs" title="预览">🔍</button>
+                    <button onclick="event.stopPropagation(); downloadGenerateImage('base')" class="w-7 h-7 bg-black/50 hover:bg-black/70 text-white rounded-lg flex items-center justify-center text-xs" title="下载">⬇</button>
+                  </div>
                 </div>
                 <input type="file" id="baseInput" accept="image/*" class="hidden" />
               </div>
