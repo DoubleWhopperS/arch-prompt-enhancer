@@ -36,6 +36,57 @@ function tamsHeaders(token) {
 
 // ─── Gemini (genai) ───
 
+function buildGeminiPrompt(prompt, hasBase, refCount, refAnalyses) {
+  // 无参考图时直接用原始 prompt
+  if (refCount === 0) return prompt;
+
+  const imageLabels = [];
+  if (hasBase) imageLabels.push('Image 1 is the base architectural rendering to modify.');
+  const refStart = hasBase ? 2 : 1;
+  const refEnd = refStart + refCount - 1;
+  if (refCount === 1) {
+    imageLabels.push(`Image ${refStart} is a style reference image.`);
+  } else {
+    imageLabels.push(`Images ${refStart}-${refEnd} are style reference images.`);
+  }
+
+  const lines = [
+    ...imageLabels,
+    '',
+    'You MUST match the visual characteristics of the style reference images:',
+    '- Match their color palette: highlight tones, shadow tones, overall warmth/coolness',
+    '- Match their lighting: direction, intensity, color temperature, and atmosphere',
+    '- Match their vegetation style: tree species, canopy shape, density, and placement',
+    '- Match their sky treatment and environmental mood',
+    '- Match their material rendering quality and texture style',
+    '',
+  ];
+
+  if (hasBase) {
+    lines.push('Generate a new image based on Image 1, applying the visual style from the reference images.');
+  } else {
+    lines.push('Generate a new architectural rendering applying the visual style from the reference images.');
+  }
+
+  // P1: 注入参考图分析结果作为硬约束
+  if (refAnalyses && refAnalyses.length > 0) {
+    const validAnalyses = refAnalyses.filter(a => a && a.trim());
+    if (validAnalyses.length > 0) {
+      lines.push('');
+      lines.push('--- Reference Image Visual Analysis (strictly follow these) ---');
+      validAnalyses.forEach((analysis, i) => {
+        lines.push(`[Reference ${i + 1}] ${analysis}`);
+      });
+    }
+  }
+
+  lines.push('');
+  lines.push('Specific instructions:');
+  lines.push(prompt);
+
+  return lines.join('\n');
+}
+
 async function createGeminiTask(token, modelId, prompt, baseImageUrl, referenceUrls, imageConfig) {
   const parts = [];
   if (baseImageUrl) {
@@ -207,7 +258,7 @@ async function uploadOneToCDN({ index, imageResult, cdnToken, res }) {
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { prompt, model: modelKey, baseImageUrl, referenceUrls, aspectRatio, imageSize, count } = req.body;
+  const { prompt, model: modelKey, baseImageUrl, referenceUrls, refAnalyses, aspectRatio, imageSize, count } = req.body;
 
   if (!prompt) return res.status(400).json({ error: '缺少 prompt' });
 
@@ -228,10 +279,20 @@ module.exports = async function handler(req, res) {
   res.flushHeaders?.();
 
   sendSSE(res, { type: 'info', model: modelInfo.name, count: imageCount });
+  // P0: 构建结构化参考图指令，让 Gemini 明确每张图的角色
+  const structuredPrompt = buildGeminiPrompt(
+    prompt,
+    !!baseImageUrl,
+    (referenceUrls || []).length,
+    refAnalyses || []
+  );
   console.log(`[generate] model=${modelInfo.name} count=${imageCount} ratio=${ratio} size=${size} refs=${(referenceUrls||[]).length} mode=generate-then-upload`);
+  if ((referenceUrls || []).length > 0) {
+    console.log(`[generate] structured prompt:\n${structuredPrompt.slice(0, 500)}...`);
+  }
 
   const cdnToken = process.env.TENSORART_BEARER_TOKEN;
-  const shared = { tamsToken, modelInfo, prompt, baseImageUrl, referenceUrls: referenceUrls || [], ratio, size, res, total: imageCount };
+  const shared = { tamsToken, modelInfo, prompt: structuredPrompt, baseImageUrl, referenceUrls: referenceUrls || [], ratio, size, res, total: imageCount };
 
   // Phase 1: Generate all images in parallel (show temp URLs immediately)
   const genTasks = [];
