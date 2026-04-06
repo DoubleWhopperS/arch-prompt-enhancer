@@ -6,14 +6,14 @@ const OpenAI = require('openai');
 const SYSTEM_PROMPT = `你是一位建筑效果图提示词工程师，服务于 Nano Banana Pro（Google Gemini 图像生成）。
 
 ## 任务
-根据基础渲染/草图、可选的参考图和用户的设计意图，生成一段优化后的中文提示词（100-160 字），将基础图转化为高质量建筑效果图。
+根据基础渲染/草图、可选的参考图和用户的设计意图，生成一段优化后的中文提示词（150-250 字），将基础图转化为高质量建筑效果图。
 
 ## 输出结构（两段，无标题）
 
-第一段 — 氛围与光影（60-100 字）：
+第一段 — 氛围与光影（80-150 字）：
 描述目标时间、天气、光线特征和元素间的明暗关系。使用相对描述（"水面是画面最亮的元素"、"阴影区域呈冷调中间灰"），不用绝对值（"6500K"、"#E8D5A3"）。关键术语可中英对照标注，如"高调画面(high-key)"。
 
-第二段 — 补充元素（40-60 字）：
+第二段 — 补充元素（50-80 字）：
 列出需要添加的人物、车辆、绿化和道具。具体但简洁，注明约束如"不遮挡建筑主体"。
 
 ## 严格规则
@@ -32,7 +32,7 @@ const SYSTEM_PROMPT = `你是一位建筑效果图提示词工程师，服务于
 
 7. 禁止描述相机参数（焦距、光圈、ISO、视角）。模型从参考图推断比文字更准确。
 
-8. 总字数：100-160 字。不超过 200 字。越短越好——每个字都要传递信息。
+8. 总字数：150-250 字。不超过 300 字。越短越好——每个字都要传递信息。
 
 9. 输出中文，关键术语可用中英对照标注。
 
@@ -105,16 +105,27 @@ function buildUserContent({ intent, params, baseImageUrl, baseImage, references 
   }
 
   if (references && references.length > 0) {
-    const refDescs = references.map((ref, i) => {
-      const focuses = ref.focuses && ref.focuses.length > 0
-        ? ref.focuses.join('、')
-        : '整体风格';
-      return `参考图${i + 1}：重点学习其「${focuses}」`;
-    });
-    textParts.push(`【参考图】\n${refDescs.join('\n')}`);
+    const refsWithAnalysis = references.filter(r => r.analysis);
+    if (refsWithAnalysis.length > 0) {
+      const analysisDescs = references.map((ref, i) => {
+        if (!ref.analysis) return null;
+        const dims = ref.focuses?.join('、') || '整体';
+        return `参考图${i + 1}（${dims}）的视觉分析：\n${ref.analysis}`;
+      }).filter(Boolean);
+      textParts.push(`【参考图分析】\n${analysisDescs.join('\n\n')}`);
+      textParts.push('请将以上参考图的视觉分析结果融入最终提示词，确保对应维度的描述忠实于参考图的实际视觉特征。');
+    } else {
+      const refDescs = references.map((ref, i) => {
+        const focuses = ref.focuses && ref.focuses.length > 0
+          ? ref.focuses.join('、')
+          : '整体风格';
+        return `参考图${i + 1}：重点学习其「${focuses}」`;
+      });
+      textParts.push(`【参考图】\n${refDescs.join('\n')}`);
+    }
   }
 
-  textParts.push('请根据以上信息，生成一段 100-160 字的中文建筑效果图提示词（两段式：氛围光影 + 补充元素，无标题）。关键术语可中英对照标注。');
+  textParts.push('请根据以上信息，生成一段 150-250 字的中文建筑效果图提示词（两段式：氛围光影 + 补充元素，无标题）。关键术语可中英对照标注。');
   content.push({ type: 'text', text: textParts.join('\n\n') });
 
   // 基础图：优先 URL，兼容 base64
