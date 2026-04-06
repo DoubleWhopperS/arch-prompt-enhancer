@@ -64,10 +64,10 @@ function switchView(view) {
   });
   document.getElementById('viewGenerate').classList.toggle('hidden', view !== 'generate');
   document.getElementById('viewLibrary').classList.toggle('hidden', view !== 'library');
+  document.getElementById('viewRefLibrary').classList.toggle('hidden', view !== 'reflib');
 
-  if (view === 'library') {
-    renderLibrary();
-  }
+  if (view === 'library') renderLibrary();
+  if (view === 'reflib') loadRefLibrary();
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1072,6 +1072,540 @@ function enhanceBtnHTML() {
 
 function generateBtnHTML() {
   return '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg> 生成效果图';
+}
+
+// ═══════════════════════════════════════════════════════
+// Reference Library — Cloud Storage (Vercel Blob)
+// ═══════════════════════════════════════════════════════
+
+let refLibItems = [];
+let refBatchMode = false;
+let refBatchSelected = new Set();
+let refFilterDims = [];
+let refUploadFiles = [];
+let refDetailItemId = null;
+let refLibLoaded = false;
+
+const STYLE_LABELS = {
+  'spring-morning': '春日晨景',
+  'blue-hour-commercial': '蓝调商业夜景',
+  'minimal-gray': '极简高级灰',
+  'blue-hour-gentle': '温柔蓝调时刻',
+  'urban-rain': '都市雨幕风',
+  'warm-fog': '暖调光雾风',
+  'daylight-realism': '日光写实风',
+};
+
+async function loadRefLibrary() {
+  if (refLibLoaded && refLibItems.length > 0) {
+    renderRefLibrary();
+    return;
+  }
+
+  const loading = document.getElementById('refLibLoading');
+  const content = document.getElementById('refLibContent');
+  const empty = document.getElementById('refLibEmpty');
+  loading.classList.remove('hidden');
+  content.innerHTML = '';
+  empty.classList.add('hidden');
+
+  try {
+    const resp = await fetch('/api/ref-library');
+    const data = await resp.json();
+    refLibItems = data.items || [];
+    refLibLoaded = true;
+  } catch (err) {
+    console.error('[reflib] load error:', err);
+    refLibItems = [];
+  }
+
+  loading.classList.add('hidden');
+  renderRefLibrary();
+  updateRefLibCount();
+}
+
+function renderRefLibrary() {
+  const content = document.getElementById('refLibContent');
+  const empty = document.getElementById('refLibEmpty');
+  const totalEl = document.getElementById('refLibTotalCount');
+
+  const filtered = getFilteredRefItems();
+  totalEl.textContent = `${filtered.length}${filtered.length !== refLibItems.length ? ' / ' + refLibItems.length : ''} 张`;
+
+  if (filtered.length === 0) {
+    content.innerHTML = '';
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+
+  let html = '<div class="masonry">';
+  for (const item of filtered) {
+    const chips = renderTagChips(item.tags);
+    const checked = refBatchSelected.has(item.id) ? 'checked' : '';
+    html += `
+      <div class="masonry-item">
+        <div class="lib-card" onclick="${refBatchMode ? `toggleRefBatchItem('${item.id}')` : `openRefDetailModal('${item.id}')`}">
+          <div class="batch-check ${checked}" onclick="event.stopPropagation(); toggleRefBatchItem('${item.id}')">
+            <svg class="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>
+          </div>
+          <img src="${item.url}" loading="lazy" />
+          <div class="lib-overlay">
+            <div class="flex-1 min-w-0">
+              <div class="flex flex-wrap gap-1 mb-1">${chips}</div>
+              <p class="text-white/60 text-xs truncate">${escapeHtml(item.description || '')}</p>
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }
+  html += '</div>';
+  content.innerHTML = html;
+}
+
+function renderTagChips(tags) {
+  if (!tags) return '';
+  const chips = [];
+  if (tags.style && STYLE_LABELS[tags.style]) {
+    chips.push(`<span class="ref-tag ref-tag-style">${STYLE_LABELS[tags.style]}</span>`);
+  }
+  if (tags.dimensions) {
+    for (const d of tags.dimensions) {
+      chips.push(`<span class="ref-tag ref-tag-dim">${d}</span>`);
+    }
+  }
+  if (tags.scene) {
+    chips.push(`<span class="ref-tag ref-tag-scene">${tags.scene}</span>`);
+  }
+  if (tags.custom) {
+    for (const c of tags.custom) {
+      chips.push(`<span class="ref-tag ref-tag-custom">${escapeHtml(c)}</span>`);
+    }
+  }
+  return chips.slice(0, 5).join('');
+}
+
+function getFilteredRefItems() {
+  const styleFilter = document.getElementById('refFilterStyle')?.value || '';
+  const sceneFilter = document.getElementById('refFilterScene')?.value || '';
+  const customFilter = (document.getElementById('refFilterCustom')?.value || '').trim().toLowerCase();
+
+  return refLibItems.filter(item => {
+    const tags = item.tags || {};
+    if (styleFilter && tags.style !== styleFilter) return false;
+    if (sceneFilter && tags.scene !== sceneFilter) return false;
+    if (refFilterDims.length > 0) {
+      const dims = tags.dimensions || [];
+      if (!refFilterDims.some(d => dims.includes(d))) return false;
+    }
+    if (customFilter) {
+      const customs = (tags.custom || []).map(c => c.toLowerCase());
+      const desc = (item.description || '').toLowerCase();
+      if (!customs.some(c => c.includes(customFilter)) && !desc.includes(customFilter)) return false;
+    }
+    return true;
+  });
+}
+
+function filterRefLibrary() {
+  renderRefLibrary();
+}
+
+function toggleRefDimFilter(dim) {
+  const idx = refFilterDims.indexOf(dim);
+  if (idx >= 0) refFilterDims.splice(idx, 1);
+  else refFilterDims.push(dim);
+
+  document.querySelectorAll('.ref-dim-filter').forEach(btn => {
+    btn.classList.toggle('active', refFilterDims.includes(btn.dataset.dim));
+  });
+  renderRefLibrary();
+}
+
+function updateRefLibCount() {
+  const el = document.getElementById('refLibCount');
+  const count = refLibItems.length;
+  el.textContent = count;
+  el.style.display = count > 0 ? '' : 'none';
+}
+
+// ─── Batch Mode ───
+
+function toggleRefBatchMode() {
+  refBatchMode = !refBatchMode;
+  refBatchSelected.clear();
+  document.getElementById('refBatchBar').classList.toggle('hidden', !refBatchMode);
+  document.getElementById('refBatchToggleBtn').textContent = refBatchMode ? '退出批量' : '批量操作';
+  updateRefBatchCount();
+  renderRefLibrary();
+}
+
+function toggleRefBatchItem(id) {
+  if (refBatchSelected.has(id)) refBatchSelected.delete(id);
+  else refBatchSelected.add(id);
+  updateRefBatchCount();
+  renderRefLibrary();
+}
+
+function refSelectAll() {
+  for (const item of getFilteredRefItems()) refBatchSelected.add(item.id);
+  updateRefBatchCount();
+  renderRefLibrary();
+}
+
+function refDeselectAll() {
+  refBatchSelected.clear();
+  updateRefBatchCount();
+  renderRefLibrary();
+}
+
+function updateRefBatchCount() {
+  const n = refBatchSelected.size;
+  document.getElementById('refBatchSelectedCount').textContent = `已选 ${n} 张`;
+  document.getElementById('refBatchEditBtn').disabled = n === 0;
+  document.getElementById('refBatchDeleteBtn').disabled = n === 0;
+}
+
+async function refBatchDelete() {
+  const n = refBatchSelected.size;
+  if (n === 0) return;
+  if (!confirm(`确定删除 ${n} 张素材？`)) return;
+
+  try {
+    const resp = await fetch('/api/ref-library', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [...refBatchSelected] }),
+    });
+    const data = await resp.json();
+    if (data.deleted > 0) {
+      refLibItems = refLibItems.filter(i => !refBatchSelected.has(i.id));
+      refBatchSelected.clear();
+      updateRefBatchCount();
+      updateRefLibCount();
+      renderRefLibrary();
+    }
+  } catch (err) {
+    alert('删除失败：' + err.message);
+  }
+}
+
+// ─── Upload Modal ───
+
+function openRefUploadModal() {
+  refUploadFiles = [];
+  document.getElementById('refUploadPreview').innerHTML = '';
+  document.getElementById('refUploadPreview').classList.add('hidden');
+  document.getElementById('refUploadFileInput').value = '';
+  document.getElementById('refUploadStyle').value = '';
+  document.getElementById('refUploadScene').value = '';
+  document.getElementById('refUploadCustomTags').value = '';
+  document.getElementById('refUploadDesc').value = '';
+  document.querySelectorAll('#refUploadDims .focus-tag').forEach(b => b.classList.remove('active'));
+  document.getElementById('refUploadSubmitBtn').disabled = true;
+  document.getElementById('refUploadSubmitBtn').textContent = '上传并保存';
+
+  const modal = document.getElementById('refUploadModal');
+  modal.classList.remove('opacity-0', 'pointer-events-none');
+
+  // Setup drag-drop
+  const dz = document.getElementById('refUploadDropZone');
+  dz.ondragover = (e) => { e.preventDefault(); dz.classList.add('dragover'); };
+  dz.ondragleave = () => dz.classList.remove('dragover');
+  dz.ondrop = (e) => {
+    e.preventDefault();
+    dz.classList.remove('dragover');
+    addRefUploadFiles(e.dataTransfer.files);
+  };
+}
+
+function closeRefUploadModal(e) {
+  if (e && e.target !== e.currentTarget) return;
+  document.getElementById('refUploadModal').classList.add('opacity-0', 'pointer-events-none');
+}
+
+function handleRefUploadFiles(event) {
+  addRefUploadFiles(event.target.files);
+}
+
+function addRefUploadFiles(fileList) {
+  for (const file of fileList) {
+    if (!file.type.startsWith('image/')) continue;
+    refUploadFiles.push(file);
+  }
+  renderRefUploadPreview();
+}
+
+function renderRefUploadPreview() {
+  const preview = document.getElementById('refUploadPreview');
+  if (refUploadFiles.length === 0) {
+    preview.classList.add('hidden');
+    document.getElementById('refUploadSubmitBtn').disabled = true;
+    return;
+  }
+  preview.classList.remove('hidden');
+  document.getElementById('refUploadSubmitBtn').disabled = false;
+
+  preview.innerHTML = refUploadFiles.map((f, i) => {
+    const url = URL.createObjectURL(f);
+    return `<div class="relative group">
+      <img src="${url}" class="w-full aspect-square object-cover rounded-lg" />
+      <button onclick="removeRefUploadFile(${i})" class="absolute top-1 right-1 w-5 h-5 bg-black/50 text-white rounded-full text-xs opacity-0 group-hover:opacity-100 transition-opacity">&times;</button>
+    </div>`;
+  }).join('');
+}
+
+function removeRefUploadFile(idx) {
+  refUploadFiles.splice(idx, 1);
+  renderRefUploadPreview();
+}
+
+function toggleRefUploadDim(btn) {
+  btn.classList.toggle('active');
+}
+
+function getSelectedDims(containerId) {
+  const dims = [];
+  document.querySelectorAll(`#${containerId} .focus-tag.active`).forEach(b => {
+    dims.push(b.dataset.dim);
+  });
+  return dims;
+}
+
+async function submitRefUpload() {
+  if (refUploadFiles.length === 0) return;
+
+  const btn = document.getElementById('refUploadSubmitBtn');
+  btn.disabled = true;
+  btn.textContent = '上传中...';
+
+  const tags = {
+    style: document.getElementById('refUploadStyle').value,
+    dimensions: getSelectedDims('refUploadDims'),
+    scene: document.getElementById('refUploadScene').value,
+    custom: document.getElementById('refUploadCustomTags').value
+      .split(/[,，]/).map(s => s.trim()).filter(Boolean),
+  };
+  const description = document.getElementById('refUploadDesc').value.trim();
+
+  try {
+    // Convert files to data URIs
+    const images = [];
+    for (const file of refUploadFiles) {
+      const dataUrl = await fileToDataUrl(file);
+      images.push({ data: dataUrl, tags: { ...tags }, description });
+    }
+
+    const resp = await fetch('/api/ref-library', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ images }),
+    });
+
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error);
+
+    if (data.added) {
+      refLibItems.unshift(...data.added);
+      updateRefLibCount();
+      renderRefLibrary();
+    }
+
+    closeRefUploadModal();
+  } catch (err) {
+    alert('上传失败：' + err.message);
+    btn.disabled = false;
+    btn.textContent = '上传并保存';
+  }
+}
+
+function fileToDataUrl(file) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.readAsDataURL(file);
+  });
+}
+
+// ─── Detail Modal ───
+
+function openRefDetailModal(id) {
+  const item = refLibItems.find(i => i.id === id);
+  if (!item) return;
+  refDetailItemId = id;
+
+  document.getElementById('refDetailImage').innerHTML = `<img src="${item.url}" class="w-full rounded-lg" />`;
+
+  // Populate tag editors
+  document.getElementById('refDetailStyle').value = item.tags?.style || '';
+  document.getElementById('refDetailScene').value = item.tags?.scene || '';
+  document.getElementById('refDetailCustomTags').value = (item.tags?.custom || []).join(', ');
+  document.getElementById('refDetailDesc').value = item.description || '';
+
+  // Render dimension chips
+  const dims = item.tags?.dimensions || [];
+  const dimContainer = document.getElementById('refDetailDims');
+  dimContainer.innerHTML = ['光线', '色调', '材质', '建筑特征', '环境配景'].map(d =>
+    `<button type="button" onclick="toggleRefUploadDim(this)" data-dim="${d}" class="focus-tag text-xs px-2.5 py-1 rounded-md border border-gray-200 dark:border-gray-700 ${dims.includes(d) ? 'active' : ''}">${d}</button>`
+  ).join('');
+
+  // Date
+  const date = new Date(item.addedAt);
+  document.getElementById('refDetailDate').textContent = `添加于 ${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+
+  document.getElementById('refDetailModal').classList.remove('opacity-0', 'pointer-events-none');
+}
+
+function closeRefDetail(e) {
+  if (e && e.target !== e.currentTarget) return;
+  document.getElementById('refDetailModal').classList.add('opacity-0', 'pointer-events-none');
+  refDetailItemId = null;
+}
+
+async function saveRefDetail() {
+  if (!refDetailItemId) return;
+
+  const tags = {
+    style: document.getElementById('refDetailStyle').value,
+    dimensions: getSelectedDims('refDetailDims'),
+    scene: document.getElementById('refDetailScene').value,
+    custom: document.getElementById('refDetailCustomTags').value
+      .split(/[,，]/).map(s => s.trim()).filter(Boolean),
+  };
+  const description = document.getElementById('refDetailDesc').value.trim();
+
+  try {
+    const resp = await fetch('/api/ref-library', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ updates: [{ id: refDetailItemId, tags, description }] }),
+    });
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error);
+
+    // Update local cache
+    const item = refLibItems.find(i => i.id === refDetailItemId);
+    if (item) {
+      item.tags = tags;
+      item.description = description;
+    }
+    renderRefLibrary();
+    closeRefDetail();
+  } catch (err) {
+    alert('保存失败：' + err.message);
+  }
+}
+
+async function deleteRefDetail() {
+  if (!refDetailItemId) return;
+  if (!confirm('确定删除这张素材？')) return;
+
+  try {
+    await fetch('/api/ref-library', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [refDetailItemId] }),
+    });
+    refLibItems = refLibItems.filter(i => i.id !== refDetailItemId);
+    updateRefLibCount();
+    renderRefLibrary();
+    closeRefDetail();
+  } catch (err) {
+    alert('删除失败：' + err.message);
+  }
+}
+
+function useAsReference() {
+  const item = refLibItems.find(i => i.id === refDetailItemId);
+  if (!item) return;
+
+  closeRefDetail();
+  switchView('generate');
+
+  // Add to references in generate view
+  const refIndex = references.length;
+  references.push({
+    imageUrl: item.url,
+    image: null,
+    focuses: item.tags?.dimensions || [],
+    supplement: '',
+    analysis: '',
+  });
+  renderRefList();
+}
+
+// ─── Batch Edit Modal ───
+
+function openRefBatchEditModal() {
+  if (refBatchSelected.size === 0) return;
+  document.getElementById('refBatchStyle').value = '';
+  document.getElementById('refBatchScene').value = '';
+  document.getElementById('refBatchCustomTags').value = '';
+  document.querySelectorAll('#refBatchDims .focus-tag').forEach(b => b.classList.remove('active'));
+  document.querySelector('input[name="refBatchMode"][value="replace"]').checked = true;
+  document.getElementById('refBatchEditModal').classList.remove('opacity-0', 'pointer-events-none');
+}
+
+function closeRefBatchEdit(e) {
+  if (e && e.target !== e.currentTarget) return;
+  document.getElementById('refBatchEditModal').classList.add('opacity-0', 'pointer-events-none');
+}
+
+async function submitRefBatchEdit() {
+  const mode = document.querySelector('input[name="refBatchMode"]:checked')?.value || 'replace';
+  const newStyle = document.getElementById('refBatchStyle').value;
+  const newScene = document.getElementById('refBatchScene').value;
+  const newDims = getSelectedDims('refBatchDims');
+  const newCustom = document.getElementById('refBatchCustomTags').value
+    .split(/[,，]/).map(s => s.trim()).filter(Boolean);
+
+  const updates = [];
+  for (const id of refBatchSelected) {
+    const item = refLibItems.find(i => i.id === id);
+    if (!item) continue;
+
+    const currentTags = item.tags || { style: '', dimensions: [], scene: '', custom: [] };
+    const tags = { ...currentTags };
+
+    if (newStyle) tags.style = newStyle;
+    if (newScene) tags.scene = newScene;
+
+    if (newDims.length > 0) {
+      tags.dimensions = mode === 'merge'
+        ? [...new Set([...(currentTags.dimensions || []), ...newDims])]
+        : newDims;
+    }
+
+    if (newCustom.length > 0) {
+      tags.custom = mode === 'merge'
+        ? [...new Set([...(currentTags.custom || []), ...newCustom])]
+        : newCustom;
+    }
+
+    updates.push({ id, tags });
+  }
+
+  if (updates.length === 0) { closeRefBatchEdit(); return; }
+
+  try {
+    const resp = await fetch('/api/ref-library', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ updates }),
+    });
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error);
+
+    // Update local cache
+    for (const upd of updates) {
+      const item = refLibItems.find(i => i.id === upd.id);
+      if (item) item.tags = upd.tags;
+    }
+    renderRefLibrary();
+    closeRefBatchEdit();
+  } catch (err) {
+    alert('批量编辑失败：' + err.message);
+  }
 }
 
 // ═══════════════════════════════════════════════════════

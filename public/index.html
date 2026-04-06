@@ -39,6 +39,20 @@
     .focus-tag { cursor: pointer; transition: all 0.15s; user-select: none; }
     .focus-tag.active { background: #6366f1; color: white; border-color: #6366f1; }
 
+    /* Ref library tag chips */
+    .ref-tag { display: inline-block; font-size: 10px; line-height: 1; padding: 2px 6px; border-radius: 4px; white-space: nowrap; }
+    .ref-tag-style { background: rgba(99,102,241,0.15); color: #6366f1; }
+    .ref-tag-dim { background: rgba(20,184,166,0.15); color: #14b8a6; }
+    .ref-tag-scene { background: rgba(245,158,11,0.15); color: #f59e0b; }
+    .ref-tag-custom { background: rgba(107,114,128,0.15); color: #6b7280; }
+    @media (prefers-color-scheme: dark) {
+      .ref-tag-style { background: rgba(99,102,241,0.25); color: #a5b4fc; }
+      .ref-tag-dim { background: rgba(20,184,166,0.25); color: #5eead4; }
+      .ref-tag-scene { background: rgba(245,158,11,0.25); color: #fbbf24; }
+      .ref-tag-custom { background: rgba(107,114,128,0.25); color: #9ca3af; }
+    }
+    .ref-dim-filter.active { background: #14b8a6; color: white; border-color: #14b8a6; }
+
     /* Phase transitions */
     .phase { opacity: 0; transform: translateY(16px); transition: opacity 0.4s, transform 0.4s; pointer-events: none; }
     .phase.visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
@@ -124,6 +138,13 @@
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
                 图库
                 <span id="libCount" class="text-xs bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 px-1.5 py-0.5 rounded-full tabular-nums" style="display:none">0</span>
+              </span>
+            </button>
+            <button class="nav-tab" data-view="reflib" onclick="switchView('reflib')">
+              <span class="flex items-center gap-1.5">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
+                素材库
+                <span id="refLibCount" class="text-xs bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 px-1.5 py-0.5 rounded-full tabular-nums" style="display:none">0</span>
               </span>
             </button>
           </nav>
@@ -391,6 +412,303 @@
         <svg class="mx-auto h-16 w-16 text-gray-200 dark:text-gray-700 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
         <p class="text-gray-400 dark:text-gray-500 text-sm">还没有生成过图片</p>
         <p class="text-gray-300 dark:text-gray-600 text-xs mt-1">在「生图」页面生成的图片会自动保存到这里</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════ -->
+  <!-- View: 素材库 (Reference Library)                  -->
+  <!-- ══════════════════════════════════════════════════ -->
+  <div id="viewRefLibrary" class="hidden">
+    <div class="max-w-6xl mx-auto px-6 py-6">
+
+      <!-- Toolbar -->
+      <div class="flex flex-col gap-4 mb-5">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <h2 class="text-lg font-semibold">素材库</h2>
+            <span id="refLibTotalCount" class="text-sm text-gray-400 tabular-nums"></span>
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="openRefUploadModal()"
+              class="text-xs px-3 py-1.5 rounded-lg bg-brand-600 text-white hover:bg-brand-700 flex items-center gap-1">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+              添加素材
+            </button>
+            <button id="refBatchToggleBtn" onclick="toggleRefBatchMode()"
+              class="text-xs px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors">
+              批量操作
+            </button>
+          </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="flex flex-wrap items-center gap-2">
+          <select id="refFilterStyle" onchange="filterRefLibrary()" class="text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+            <option value="">全部风格</option>
+            <option value="spring-morning">春日晨景</option>
+            <option value="blue-hour-commercial">蓝调商业夜景</option>
+            <option value="minimal-gray">极简高级灰</option>
+            <option value="blue-hour-gentle">温柔蓝调时刻</option>
+            <option value="urban-rain">都市雨幕风</option>
+            <option value="warm-fog">暖调光雾风</option>
+            <option value="daylight-realism">日光写实风</option>
+          </select>
+          <select id="refFilterScene" onchange="filterRefLibrary()" class="text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+            <option value="">全部场景</option>
+            <option value="住宅">住宅</option>
+            <option value="商办">商办</option>
+            <option value="公建">公建</option>
+            <option value="景观">景观</option>
+            <option value="室内">室内</option>
+            <option value="城市">城市</option>
+          </select>
+          <div class="flex gap-1.5" id="refFilterDims">
+            <button onclick="toggleRefDimFilter('光线')" class="ref-dim-filter text-xs px-2 py-1 rounded-md border border-gray-200 dark:border-gray-700 text-gray-500 hover:border-teal-400 transition-colors" data-dim="光线">光线</button>
+            <button onclick="toggleRefDimFilter('色调')" class="ref-dim-filter text-xs px-2 py-1 rounded-md border border-gray-200 dark:border-gray-700 text-gray-500 hover:border-teal-400 transition-colors" data-dim="色调">色调</button>
+            <button onclick="toggleRefDimFilter('材质')" class="ref-dim-filter text-xs px-2 py-1 rounded-md border border-gray-200 dark:border-gray-700 text-gray-500 hover:border-teal-400 transition-colors" data-dim="材质">材质</button>
+            <button onclick="toggleRefDimFilter('建筑特征')" class="ref-dim-filter text-xs px-2 py-1 rounded-md border border-gray-200 dark:border-gray-700 text-gray-500 hover:border-teal-400 transition-colors" data-dim="建筑特征">建筑特征</button>
+            <button onclick="toggleRefDimFilter('环境配景')" class="ref-dim-filter text-xs px-2 py-1 rounded-md border border-gray-200 dark:border-gray-700 text-gray-500 hover:border-teal-400 transition-colors" data-dim="环境配景">环境配景</button>
+          </div>
+          <input id="refFilterCustom" type="text" placeholder="搜索自定义标签..." oninput="filterRefLibrary()"
+            class="text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 w-36" />
+        </div>
+      </div>
+
+      <!-- Batch bar -->
+      <div id="refBatchBar" class="hidden mb-4 bg-brand-50 dark:bg-brand-500/10 border border-brand-200 dark:border-brand-500/30 rounded-xl px-4 py-3 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <button onclick="refSelectAll()" class="text-xs text-brand-600 dark:text-brand-400 hover:underline">全选</button>
+          <button onclick="refDeselectAll()" class="text-xs text-gray-500 hover:underline">取消全选</button>
+          <span id="refBatchSelectedCount" class="text-xs text-gray-500 tabular-nums">已选 0 张</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="openRefBatchEditModal()" class="text-xs px-3 py-1.5 rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50" id="refBatchEditBtn" disabled>
+            编辑标签
+          </button>
+          <button onclick="refBatchDelete()" class="text-xs px-3 py-1.5 rounded-lg bg-red-500 text-white hover:bg-red-600 disabled:opacity-50" id="refBatchDeleteBtn" disabled>
+            删除
+          </button>
+        </div>
+      </div>
+
+      <!-- Masonry content -->
+      <div id="refLibContent"></div>
+
+      <!-- Loading -->
+      <div id="refLibLoading" class="hidden py-20 text-center">
+        <div class="inline-block w-6 h-6 border-2 border-gray-300 dark:border-gray-600 border-t-brand-500 rounded-full animate-spin"></div>
+        <p class="text-gray-400 text-sm mt-3">加载中...</p>
+      </div>
+
+      <!-- Empty state -->
+      <div id="refLibEmpty" class="hidden py-20 text-center">
+        <svg class="mx-auto h-16 w-16 text-gray-200 dark:text-gray-700 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
+        <p class="text-gray-400 dark:text-gray-500 text-sm">还没有添加参考素材</p>
+        <p class="text-gray-300 dark:text-gray-600 text-xs mt-1">点击「添加素材」上传优质参考图</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Upload Modal (ref library) -->
+  <div id="refUploadModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center opacity-0 pointer-events-none transition-opacity duration-300" style="z-index:90" onclick="closeRefUploadModal(event)">
+    <div class="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+      <div class="flex items-center justify-between p-5 border-b border-gray-100 dark:border-gray-800">
+        <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">添加参考素材</h3>
+        <button onclick="closeRefUploadModal()" class="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
+      </div>
+      <div class="p-5 space-y-4">
+        <!-- Drop zone -->
+        <div id="refUploadDropZone" class="drop-zone border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-8 text-center cursor-pointer"
+          onclick="document.getElementById('refUploadFileInput').click()">
+          <svg class="mx-auto h-10 w-10 text-gray-300 dark:text-gray-600 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+          <p class="text-sm text-gray-400">拖放图片或点击选择</p>
+          <p class="text-xs text-gray-300 dark:text-gray-600 mt-1">支持多选</p>
+          <input id="refUploadFileInput" type="file" accept="image/*" multiple class="hidden" onchange="handleRefUploadFiles(event)" />
+        </div>
+        <!-- Preview -->
+        <div id="refUploadPreview" class="hidden grid grid-cols-4 gap-2"></div>
+        <!-- Tags -->
+        <div class="space-y-3">
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">出图风格</label>
+            <select id="refUploadStyle" class="w-full text-xs px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+              <option value="">不限定</option>
+              <option value="spring-morning">春日晨景</option>
+              <option value="blue-hour-commercial">蓝调商业夜景</option>
+              <option value="minimal-gray">极简高级灰</option>
+              <option value="blue-hour-gentle">温柔蓝调时刻</option>
+              <option value="urban-rain">都市雨幕风</option>
+              <option value="warm-fog">暖调光雾风</option>
+              <option value="daylight-realism">日光写实风</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">参考维度</label>
+            <div class="flex flex-wrap gap-1.5" id="refUploadDims">
+              <button type="button" onclick="toggleRefUploadDim(this)" data-dim="光线" class="focus-tag text-xs px-2.5 py-1 rounded-md border border-gray-200 dark:border-gray-700">光线</button>
+              <button type="button" onclick="toggleRefUploadDim(this)" data-dim="色调" class="focus-tag text-xs px-2.5 py-1 rounded-md border border-gray-200 dark:border-gray-700">色调</button>
+              <button type="button" onclick="toggleRefUploadDim(this)" data-dim="材质" class="focus-tag text-xs px-2.5 py-1 rounded-md border border-gray-200 dark:border-gray-700">材质</button>
+              <button type="button" onclick="toggleRefUploadDim(this)" data-dim="建筑特征" class="focus-tag text-xs px-2.5 py-1 rounded-md border border-gray-200 dark:border-gray-700">建筑特征</button>
+              <button type="button" onclick="toggleRefUploadDim(this)" data-dim="环境配景" class="focus-tag text-xs px-2.5 py-1 rounded-md border border-gray-200 dark:border-gray-700">环境配景</button>
+            </div>
+          </div>
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">场景类型</label>
+            <select id="refUploadScene" class="w-full text-xs px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+              <option value="">不限定</option>
+              <option value="住宅">住宅</option>
+              <option value="商办">商办</option>
+              <option value="公建">公建</option>
+              <option value="景观">景观</option>
+              <option value="室内">室内</option>
+              <option value="城市">城市</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">自定义标签 <span class="text-gray-300 dark:text-gray-600">（逗号分隔）</span></label>
+            <input id="refUploadCustomTags" type="text" placeholder="如：MIR, 雨景, 混凝土"
+              class="w-full text-xs px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900" />
+          </div>
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">描述</label>
+            <textarea id="refUploadDesc" rows="2" placeholder="简短描述这些参考图的特征..."
+              class="w-full text-xs px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 resize-y"></textarea>
+          </div>
+        </div>
+        <!-- Submit -->
+        <button id="refUploadSubmitBtn" onclick="submitRefUpload()" disabled
+          class="w-full text-sm px-4 py-2.5 rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+          上传并保存
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Detail/Edit Modal (ref library) -->
+  <div id="refDetailModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center opacity-0 pointer-events-none transition-opacity duration-300" style="z-index:90" onclick="closeRefDetail(event)">
+    <div class="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl max-w-3xl w-full mx-4 max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+      <div class="flex items-center justify-between p-5 border-b border-gray-100 dark:border-gray-800">
+        <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">素材详情</h3>
+        <button onclick="closeRefDetail()" class="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
+      </div>
+      <div class="p-5 space-y-4">
+        <div id="refDetailImage" class="rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800 cursor-pointer"></div>
+        <!-- Tags editor -->
+        <div class="space-y-3">
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">出图风格</label>
+            <select id="refDetailStyle" class="w-full text-xs px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+              <option value="">不限定</option>
+              <option value="spring-morning">春日晨景</option>
+              <option value="blue-hour-commercial">蓝调商业夜景</option>
+              <option value="minimal-gray">极简高级灰</option>
+              <option value="blue-hour-gentle">温柔蓝调时刻</option>
+              <option value="urban-rain">都市雨幕风</option>
+              <option value="warm-fog">暖调光雾风</option>
+              <option value="daylight-realism">日光写实风</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">参考维度</label>
+            <div class="flex flex-wrap gap-1.5" id="refDetailDims"></div>
+          </div>
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">场景类型</label>
+            <select id="refDetailScene" class="w-full text-xs px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+              <option value="">不限定</option>
+              <option value="住宅">住宅</option>
+              <option value="商办">商办</option>
+              <option value="公建">公建</option>
+              <option value="景观">景观</option>
+              <option value="室内">室内</option>
+              <option value="城市">城市</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">自定义标签</label>
+            <input id="refDetailCustomTags" type="text" placeholder="逗号分隔"
+              class="w-full text-xs px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900" />
+          </div>
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">描述</label>
+            <textarea id="refDetailDesc" rows="2"
+              class="w-full text-xs px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 resize-y"></textarea>
+          </div>
+        </div>
+        <div id="refDetailDate" class="text-xs text-gray-400"></div>
+        <!-- Actions -->
+        <div class="flex gap-2 pt-2">
+          <button onclick="saveRefDetail()" class="flex-1 text-sm px-4 py-2 rounded-lg bg-brand-600 text-white hover:bg-brand-700">
+            保存
+          </button>
+          <button onclick="useAsReference()" class="flex-1 text-sm px-4 py-2 rounded-lg border border-brand-200 dark:border-brand-800 text-brand-600 dark:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-900/20">
+            用作参考
+          </button>
+          <button onclick="deleteRefDetail()" class="text-sm px-4 py-2 rounded-lg border border-red-200 dark:border-red-800 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20">
+            删除
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Batch Edit Modal (ref library) -->
+  <div id="refBatchEditModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center opacity-0 pointer-events-none transition-opacity duration-300" style="z-index:95" onclick="closeRefBatchEdit(event)">
+    <div class="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl max-w-md w-full mx-4" onclick="event.stopPropagation()">
+      <div class="flex items-center justify-between p-5 border-b border-gray-100 dark:border-gray-800">
+        <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">批量编辑标签</h3>
+        <button onclick="closeRefBatchEdit()" class="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
+      </div>
+      <div class="p-5 space-y-4">
+        <div class="flex items-center gap-2 text-xs text-gray-500 mb-2">
+          <span>应用模式：</span>
+          <label class="flex items-center gap-1 cursor-pointer"><input type="radio" name="refBatchMode" value="replace" checked class="accent-brand-600" /> 覆盖</label>
+          <label class="flex items-center gap-1 cursor-pointer"><input type="radio" name="refBatchMode" value="merge" class="accent-brand-600" /> 追加</label>
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">出图风格</label>
+          <select id="refBatchStyle" class="w-full text-xs px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+            <option value="">（不修改）</option>
+            <option value="spring-morning">春日晨景</option>
+            <option value="blue-hour-commercial">蓝调商业夜景</option>
+            <option value="minimal-gray">极简高级灰</option>
+            <option value="blue-hour-gentle">温柔蓝调时刻</option>
+            <option value="urban-rain">都市雨幕风</option>
+            <option value="warm-fog">暖调光雾风</option>
+            <option value="daylight-realism">日光写实风</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">参考维度</label>
+          <div class="flex flex-wrap gap-1.5" id="refBatchDims">
+            <button type="button" onclick="toggleRefUploadDim(this)" data-dim="光线" class="focus-tag text-xs px-2.5 py-1 rounded-md border border-gray-200 dark:border-gray-700">光线</button>
+            <button type="button" onclick="toggleRefUploadDim(this)" data-dim="色调" class="focus-tag text-xs px-2.5 py-1 rounded-md border border-gray-200 dark:border-gray-700">色调</button>
+            <button type="button" onclick="toggleRefUploadDim(this)" data-dim="材质" class="focus-tag text-xs px-2.5 py-1 rounded-md border border-gray-200 dark:border-gray-700">材质</button>
+            <button type="button" onclick="toggleRefUploadDim(this)" data-dim="建筑特征" class="focus-tag text-xs px-2.5 py-1 rounded-md border border-gray-200 dark:border-gray-700">建筑特征</button>
+            <button type="button" onclick="toggleRefUploadDim(this)" data-dim="环境配景" class="focus-tag text-xs px-2.5 py-1 rounded-md border border-gray-200 dark:border-gray-700">环境配景</button>
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">场景类型</label>
+          <select id="refBatchScene" class="w-full text-xs px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+            <option value="">（不修改）</option>
+            <option value="住宅">住宅</option>
+            <option value="商办">商办</option>
+            <option value="公建">公建</option>
+            <option value="景观">景观</option>
+            <option value="室内">室内</option>
+            <option value="城市">城市</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">自定义标签</label>
+          <input id="refBatchCustomTags" type="text" placeholder="逗号分隔"
+            class="w-full text-xs px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900" />
+        </div>
+        <button onclick="submitRefBatchEdit()" class="w-full text-sm px-4 py-2.5 rounded-lg bg-brand-600 text-white hover:bg-brand-700">
+          应用到已选素材
+        </button>
       </div>
     </div>
   </div>

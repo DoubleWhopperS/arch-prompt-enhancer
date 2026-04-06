@@ -5,6 +5,7 @@ const { enhancePromptStream } = require('./lib/enhancer');
 const uploadHandler = require('./api/upload');
 const generateHandler = require('./api/generate');
 const analyzeRefHandler = require('./api/analyze-ref');
+const refLibraryHandler = require('./api/ref-library');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -50,6 +51,9 @@ app.post('/api/upload', uploadHandler);
 // ─── SSE: 参考图分析 ───
 app.post('/api/analyze-ref', analyzeRefHandler);
 
+// ─── 参考图素材库 ───
+app.all('/api/ref-library', refLibraryHandler);
+
 // ─── SSE: 图片生成 ───
 app.post('/api/generate', generateHandler);
 
@@ -62,6 +66,7 @@ app.listen(PORT, () => {
     ['TUZI_API_KEY', !!process.env.TUZI_API_KEY, 'Prompt 增强'],
     ['TAMS_TOKEN', !!(process.env.TAMS_TOKEN || process.env.TAMS_API_TOKEN), '图片生成'],
     ['TENSORART_BEARER_TOKEN', !!process.env.TENSORART_BEARER_TOKEN, 'CDN 上传'],
+    ['BLOB_READ_WRITE_TOKEN', !!process.env.BLOB_READ_WRITE_TOKEN, '素材库'],
   ];
   for (const [key, ok, feature] of checks) {
     console.log(`  ${ok ? '\u2713' : '\u2717'} ${key} ${ok ? '' : `(未设置 — ${feature}不可用)`}`);
