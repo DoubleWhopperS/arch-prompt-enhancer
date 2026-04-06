@@ -581,6 +581,7 @@ async function generateImages() {
               url: data.url,
               prompt,
               baseImageUrl: baseImageUrl || null,
+              referenceUrls: references.map(r => r.imageUrl).filter(Boolean),
               model: modelValue,
               ratio: aspectRatio,
               size: sizeValue,
@@ -796,13 +797,14 @@ function setLibrary(items) {
   updateLibCount();
 }
 
-function saveToLibrary({ url, prompt, baseImageUrl, model, ratio, size }) {
+function saveToLibrary({ url, prompt, baseImageUrl, referenceUrls, model, ratio, size }) {
   const items = getLibrary();
   items.unshift({
     id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     url,
     prompt: prompt || '',
     baseImageUrl: baseImageUrl || null,
+    referenceUrls: referenceUrls || [],
     model: model || '',
     ratio: ratio || '',
     size: size || '',
@@ -993,6 +995,18 @@ function openDetailModal(id) {
     baseWrap.classList.remove('hidden');
   } else {
     baseWrap.classList.add('hidden');
+  }
+
+  // Reference images
+  const refWrap = document.getElementById('detailRefWrap');
+  const refContainer = document.getElementById('detailRefImages');
+  if (item.referenceUrls && item.referenceUrls.length > 0) {
+    refContainer.innerHTML = item.referenceUrls.map((url, i) =>
+      `<img src="${url}" class="w-16 h-16 object-cover rounded cursor-pointer" onclick="document.getElementById('imagePreviewImg').src='${url}';document.getElementById('imagePreviewOverlay').classList.remove('opacity-0','pointer-events-none')" title="参考图 ${i+1}" />`
+    ).join('');
+    refWrap.classList.remove('hidden');
+  } else {
+    refWrap.classList.add('hidden');
   }
 
   // Actions
