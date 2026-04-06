@@ -1110,10 +1110,35 @@ async function batchDownload() {
   const selected = items.filter(i => batchSelected.has(i.id));
   if (selected.length === 0) return;
 
-  for (const item of selected) {
-    await downloadUrl(item.url, `rendering_${item.id}.png`);
-    // Small delay to prevent browser blocking multiple downloads
-    await new Promise(r => setTimeout(r, 300));
+  const btn = document.getElementById('batchDownloadBtn');
+  const origText = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = `<svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg> 打包中...`;
+
+  try {
+    const zip = new JSZip();
+    const results = await Promise.allSettled(selected.map(async (item, i) => {
+      const resp = await fetch(item.url);
+      const blob = await resp.blob();
+      const ext = blob.type.includes('png') ? 'png' : 'jpg';
+      const date = item.createdAt ? new Date(item.createdAt).toISOString().slice(0, 10) : '';
+      zip.file(`${date ? date + '_' : ''}rendering_${i + 1}.${ext}`, blob);
+    }));
+
+    const failed = results.filter(r => r.status === 'rejected').length;
+    if (failed > 0) console.warn(`[batch] ${failed}/${selected.length} images failed to fetch`);
+
+    const content = await zip.generateAsync({ type: 'blob' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(content);
+    a.download = `renderings_${new Date().toISOString().slice(0, 10)}_${selected.length}张.zip`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch (err) {
+    alert(`打包下载失败: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = origText;
   }
 }
 
@@ -1332,8 +1357,44 @@ function refDeselectAll() {
 function updateRefBatchCount() {
   const n = refBatchSelected.size;
   document.getElementById('refBatchSelectedCount').textContent = `已选 ${n} 张`;
+  document.getElementById('refBatchDownloadBtn').disabled = n === 0;
   document.getElementById('refBatchEditBtn').disabled = n === 0;
   document.getElementById('refBatchDeleteBtn').disabled = n === 0;
+}
+
+async function refBatchDownload() {
+  const selected = refLibItems.filter(i => refBatchSelected.has(i.id));
+  if (selected.length === 0) return;
+
+  const btn = document.getElementById('refBatchDownloadBtn');
+  const origText = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = `<svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg> 打包中...`;
+
+  try {
+    const zip = new JSZip();
+    const results = await Promise.allSettled(selected.map(async (item, i) => {
+      const resp = await fetch(item.url);
+      const blob = await resp.blob();
+      const ext = blob.type.includes('png') ? 'png' : 'jpg';
+      zip.file(`ref_${i + 1}.${ext}`, blob);
+    }));
+
+    const failed = results.filter(r => r.status === 'rejected').length;
+    if (failed > 0) console.warn(`[ref-batch] ${failed}/${selected.length} images failed to fetch`);
+
+    const content = await zip.generateAsync({ type: 'blob' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(content);
+    a.download = `references_${new Date().toISOString().slice(0, 10)}_${selected.length}张.zip`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch (err) {
+    alert(`打包下载失败: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = origText;
+  }
 }
 
 async function refBatchDelete() {

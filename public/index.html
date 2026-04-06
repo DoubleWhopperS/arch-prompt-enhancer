@@ -492,6 +492,10 @@
           <span id="refBatchSelectedCount" class="text-xs text-gray-500 tabular-nums">已选 0 张</span>
         </div>
         <div class="flex items-center gap-2">
+          <button onclick="refBatchDownload()" class="text-xs px-3 py-1.5 rounded-lg bg-brand-600 text-white hover:bg-brand-700 flex items-center gap-1 disabled:opacity-50" id="refBatchDownloadBtn" disabled>
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+            下载
+          </button>
           <button onclick="openRefBatchEditModal()" class="text-xs px-3 py-1.5 rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50" id="refBatchEditBtn" disabled>
             编辑标签
           </button>
@@ -855,6 +859,7 @@
     </button>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
