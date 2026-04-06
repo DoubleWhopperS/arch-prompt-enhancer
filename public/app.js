@@ -948,7 +948,35 @@ async function flushGallery() {
       document.body.appendChild(toast);
       setTimeout(() => toast.remove(), 8000);
     } catch (_) {}
+    // Schedule automatic retry with exponential backoff
+    scheduleGalleryRetry();
   }
+}
+
+let galleryRetryTimer = null;
+let galleryRetryCount = 0;
+function scheduleGalleryRetry() {
+  if (galleryRetryTimer) return; // already scheduled
+  galleryRetryCount++;
+  const delay = Math.min(5000 * Math.pow(2, galleryRetryCount - 1), 60000); // 5s, 10s, 20s, 40s, 60s max
+  console.log(`[gallery] retry #${galleryRetryCount} scheduled in ${delay / 1000}s`);
+  galleryRetryTimer = setTimeout(async () => {
+    galleryRetryTimer = null;
+    if (!galleryDirty) { galleryRetryCount = 0; return; }
+    console.log(`[gallery] retry #${galleryRetryCount} executing...`);
+    await flushGallery();
+    if (!galleryDirty) {
+      galleryRetryCount = 0;
+      // Success toast
+      try {
+        const toast = document.createElement('div');
+        toast.className = 'fixed top-4 right-4 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg z-[9999] text-sm';
+        toast.textContent = '✅ 图库同步重试成功';
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 4000);
+      } catch (_) {}
+    }
+  }, delay);
 }
 
 function deleteFromLibrary(ids) {
