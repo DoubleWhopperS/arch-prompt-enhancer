@@ -731,11 +731,10 @@ function updateLightboxNav() {
 }
 
 document.addEventListener('keydown', (e) => {
-  // Close detail modal on Escape
-  if (e.key === 'Escape' && document.getElementById('detailModal').classList.contains('detail-open')) {
-    closeDetail();
-    return;
-  }
+  const detailOpen = document.getElementById('detailModal').classList.contains('detail-open');
+  if (e.key === 'Escape' && detailOpen) { closeDetail(); return; }
+  if (detailOpen && e.key === 'ArrowLeft') { navigateDetail(-1); return; }
+  if (detailOpen && e.key === 'ArrowRight') { navigateDetail(1); return; }
   if (lightboxIndex < 0) return;
   if (e.key === 'Escape') closeLightbox();
   if (e.key === 'ArrowLeft') navigateLightbox(e, -1);
@@ -1037,6 +1036,16 @@ function openLibLightboxById(id) {
   document.getElementById('lbImage').src = items[idx].url;
   document.getElementById('lightbox').classList.add('open');
   updateLightboxNav();
+}
+
+function navigateDetail(dir) {
+  if (!detailItemId) return;
+  const items = getLibrary();
+  const idx = items.findIndex(i => i.id === detailItemId);
+  if (idx < 0) return;
+  const next = idx + dir;
+  if (next < 0 || next >= items.length) return;
+  openDetailModal(items[next].id);
 }
 
 function closeDetail(e) {
