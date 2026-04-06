@@ -36,11 +36,17 @@ function tamsHeaders(token) {
 
 // ─── Gemini (genai) ───
 
-async function createGeminiTask(token, modelId, prompt, baseImageUrl, imageConfig) {
+async function createGeminiTask(token, modelId, prompt, baseImageUrl, referenceUrls, imageConfig) {
   const parts = [];
   if (baseImageUrl) {
     const mime = /\.png$/i.test(baseImageUrl) ? 'image/png' : 'image/jpeg';
     parts.push({ fileData: { mimeType: mime, fileUri: baseImageUrl } });
+  }
+  if (referenceUrls && referenceUrls.length > 0) {
+    for (const refUrl of referenceUrls) {
+      const mime = /\.png$/i.test(refUrl) ? 'image/png' : 'image/jpeg';
+      parts.push({ fileData: { mimeType: mime, fileUri: refUrl } });
+    }
   }
   parts.push({ text: prompt });
 
@@ -138,14 +144,14 @@ function extractImage(provider, data) {
 
 // ─── Phase 1: 生成单张图片（create + poll），返回原始结果 ───
 
-async function generateOneImage({ index, total, tamsToken, modelInfo, prompt, baseImageUrl, ratio, size, res }) {
+async function generateOneImage({ index, total, tamsToken, modelInfo, prompt, baseImageUrl, referenceUrls, ratio, size, res }) {
   const label = `${index + 1}/${total}`;
 
   // 1. Create task
   sendSSE(res, { type: 'progress', message: `Creating task ${label}...`, index });
   let requestId;
   if (modelInfo.provider === 'genai') {
-    requestId = await createGeminiTask(tamsToken, modelInfo.id, prompt, baseImageUrl, { aspectRatio: ratio, imageSize: size });
+    requestId = await createGeminiTask(tamsToken, modelInfo.id, prompt, baseImageUrl, referenceUrls, { aspectRatio: ratio, imageSize: size });
   } else {
     const sizeStr = SEEDREAM_SIZES[ratio]?.[size] || '2048x1536';
     requestId = await createVolcanoTask(tamsToken, modelInfo.id, prompt, baseImageUrl, sizeStr);
@@ -199,7 +205,7 @@ async function uploadOneToCDN({ index, imageResult, cdnToken, res }) {
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { prompt, model: modelKey, baseImageUrl, aspectRatio, imageSize, count } = req.body;
+  const { prompt, model: modelKey, baseImageUrl, referenceUrls, aspectRatio, imageSize, count } = req.body;
 
   if (!prompt) return res.status(400).json({ error: '缺少 prompt' });
 
@@ -223,7 +229,7 @@ module.exports = async function handler(req, res) {
   console.log(`[generate] model=${modelInfo.name} count=${imageCount} ratio=${ratio} size=${size} mode=generate-then-upload`);
 
   const cdnToken = process.env.TENSORART_BEARER_TOKEN;
-  const shared = { tamsToken, modelInfo, prompt, baseImageUrl, ratio, size, res, total: imageCount };
+  const shared = { tamsToken, modelInfo, prompt, baseImageUrl, referenceUrls: referenceUrls || [], ratio, size, res, total: imageCount };
 
   // Phase 1: Generate all images in parallel (show temp URLs immediately)
   const genTasks = [];

@@ -541,6 +541,7 @@ async function generateImages() {
     prompt,
     model: modelValue,
     baseImageUrl: baseImageUrl || null,
+    referenceUrls: references.map(r => r.imageUrl).filter(Boolean),
     aspectRatio,
     imageSize: sizeValue,
     count: selectedCount,
