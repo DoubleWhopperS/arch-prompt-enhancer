@@ -608,6 +608,8 @@ async function generateImages() {
         generatedImages[i] = { url: null, status: 'error', message: err.message };
       }
     }
+    renderGallery();
+  } finally {
     // Mark images that never got CDN update as failed
     for (let i = startIdx; i < generatedImages.length; i++) {
       if (generatedImages[i].cdnStatus === 'pending') {
@@ -615,9 +617,8 @@ async function generateImages() {
       }
     }
     renderGallery();
-    // Flush all gallery changes to cloud in one atomic write
+    // Flush all gallery changes to cloud — always runs, regardless of success/error
     await flushGallery();
-  } finally {
     btn.disabled = false;
     btn.innerHTML = generateBtnHTML();
     moreBtn.style.display = '';
