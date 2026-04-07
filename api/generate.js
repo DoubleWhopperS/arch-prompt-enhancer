@@ -237,20 +237,27 @@ async function generateOneImage({ index, total, tamsToken, modelInfo, prompt, ba
 // ─── Phase 2: 批量上传 CDN ───
 
 async function uploadOneToCDN({ index, imageResult, cdnToken, res }) {
-  try {
-    let cdnUrl;
-    if (imageResult.type === 'base64') {
-      cdnUrl = await uploadBase64ToCDN(imageResult.value, imageResult.mime, cdnToken);
-    } else {
-      cdnUrl = await downloadAndUploadToCDN(imageResult.value, cdnToken);
+  const maxRetries = 2;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      let cdnUrl;
+      if (imageResult.type === 'base64') {
+        cdnUrl = await uploadBase64ToCDN(imageResult.value, imageResult.mime, cdnToken);
+      } else {
+        cdnUrl = await downloadAndUploadToCDN(imageResult.value, cdnToken);
+      }
+      // Update frontend with persistent CDN URL
+      sendSSE(res, { type: 'image_updated', url: cdnUrl, index });
+      console.log(`[generate] ${index + 1} CDN: ${cdnUrl.slice(0, 80)}...`);
+      return; // success
+    } catch (err) {
+      console.warn(`[generate] CDN upload attempt ${attempt}/${maxRetries} failed for ${index + 1}: ${err.message}`);
+      if (attempt < maxRetries) {
+        await new Promise(r => setTimeout(r, 2000)); // wait 2s before retry
+      }
     }
-    // Update frontend with persistent CDN URL
-    sendSSE(res, { type: 'image_updated', url: cdnUrl, index });
-    console.log(`[generate] ${index + 1} CDN: ${cdnUrl.slice(0, 80)}...`);
-  } catch (err) {
-    console.warn(`[generate] CDN upload failed for ${index + 1}: ${err.message}`);
-    // Keep the temp URL, no update needed
   }
+  console.error(`[generate] CDN upload exhausted all retries for ${index + 1}`);
 }
 
 // ─── Handler ───

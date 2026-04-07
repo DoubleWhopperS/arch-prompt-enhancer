@@ -620,18 +620,17 @@ async function generateImages() {
     }
     renderGallery();
   } finally {
-    // Mark images that never got CDN update as failed, and remove their temp URLs from gallery
+    // Mark images that never got CDN update as failed in both generatedImages and gallery
     for (let i = startIdx; i < generatedImages.length; i++) {
       if (generatedImages[i].cdnStatus === 'pending') {
         generatedImages[i].cdnStatus = 'failed';
-        // Remove temp URL from gallery — it will expire and cause broken images
+        // Also mark in gallery cache so the library view shows retry button
         const tempUrl = generatedImages[i].url;
         if (tempUrl && galleryCache) {
-          const before = galleryCache.length;
-          galleryCache = galleryCache.filter(item => item.url !== tempUrl);
-          if (galleryCache.length < before) {
+          const item = galleryCache.find(g => g.url === tempUrl);
+          if (item) {
+            item.cdnStatus = 'failed';
             galleryDirty = true;
-            console.warn(`[gallery] removed CDN-failed item with temp URL: ${tempUrl.slice(0, 60)}...`);
           }
         }
       }
@@ -916,6 +915,7 @@ function saveToLibrary({ url, prompt, baseImageUrl, referenceUrls, model, ratio,
     model: model || '',
     ratio: ratio || '',
     size: size || '',
+    cdnStatus: 'pending',
     createdAt: new Date().toISOString(),
   };
   items.unshift(newItem);
@@ -931,6 +931,7 @@ function updateLibraryUrl(oldUrl, newUrl) {
   const item = items.find(i => i.url === oldUrl);
   if (!item) return;
   item.url = newUrl;
+  item.cdnStatus = 'done';
   galleryCache = items;
   galleryDirty = true;
   // No individual PATCH — will be synced in batch via flushGallery()
@@ -987,6 +988,67 @@ function scheduleGalleryRetry() {
       } catch (_) {}
     }
   }, delay);
+}
+
+// Retry CDN upload for a gallery item with failed/expired temp URL
+async function retryGalleryCdn(itemId) {
+  const item = getLibrary().find(i => i.id === itemId);
+  if (!item) return;
+
+  // Show loading state
+  const btn = event?.target?.closest?.('button');
+  if (btn) { btn.disabled = true; btn.textContent = '上传中...'; }
+
+  try {
+    // Step 1: Try to fetch the image from temp URL
+    const resp = await fetch(item.url);
+    if (!resp.ok) throw new Error('临时链接已过期，无法恢复此图片');
+
+    const blob = await resp.blob();
+    // Convert to base64 data URI
+    const base64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+
+    // Step 2: Upload to CDN via /api/upload
+    const uploadResp = await fetch('/api/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: base64 }),
+    });
+    if (!uploadResp.ok) throw new Error('CDN 上传失败');
+    const { url: cdnUrl } = await uploadResp.json();
+
+    // Step 3: Update gallery item
+    item.url = cdnUrl;
+    item.cdnStatus = 'done';
+    galleryDirty = true;
+    await flushGallery();
+    renderLibrary();
+
+    // Success toast
+    const toast = document.createElement('div');
+    toast.className = 'fixed top-4 right-4 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg z-[9999] text-sm';
+    toast.textContent = '✅ CDN 上传成功';
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 4000);
+  } catch (err) {
+    console.error('[gallery] CDN retry failed:', err.message);
+    if (btn) { btn.disabled = false; btn.textContent = '重新上传'; }
+
+    // Check if it's an expired URL — offer to delete
+    if (err.message.includes('过期') || err.message.includes('Failed to fetch')) {
+      if (confirm(`该图片的临时链接已过期，无法恢复。\n是否从图库中删除此记录？`)) {
+        deleteFromLibrary(itemId);
+        renderLibrary();
+      }
+    } else {
+      alert(`上传失败: ${err.message}`);
+    }
+  }
 }
 
 function deleteFromLibrary(ids) {
@@ -1090,7 +1152,14 @@ function renderLibrary() {
                   <div class="batch-check ${checked}" onclick="event.stopPropagation(); toggleBatchItem('${item.id}')">
                     <svg class="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>
                   </div>
-                  <img src="${item.url}" loading="lazy" />
+                  <img src="${item.url}" loading="lazy" onerror="this.style.display='none'" />
+                  ${item.cdnStatus === 'failed' ? `
+                    <div class="absolute inset-0 flex flex-col items-center justify-center bg-black/60 z-10">
+                      <svg class="w-8 h-8 text-amber-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg>
+                      <p class="text-amber-300 text-xs mb-2">CDN 上传失败</p>
+                      <button onclick="event.stopPropagation(); retryGalleryCdn('${item.id}')" class="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-white text-xs rounded-lg transition">重新上传</button>
+                    </div>
+                  ` : ''}
                   <div class="lib-overlay">
                     <div class="flex-1 min-w-0">
                       <p class="text-white text-xs truncate">${escapeHtml(item.model || '')}</p>
