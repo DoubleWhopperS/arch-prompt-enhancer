@@ -620,10 +620,20 @@ async function generateImages() {
     }
     renderGallery();
   } finally {
-    // Mark images that never got CDN update as failed
+    // Mark images that never got CDN update as failed, and remove their temp URLs from gallery
     for (let i = startIdx; i < generatedImages.length; i++) {
       if (generatedImages[i].cdnStatus === 'pending') {
         generatedImages[i].cdnStatus = 'failed';
+        // Remove temp URL from gallery — it will expire and cause broken images
+        const tempUrl = generatedImages[i].url;
+        if (tempUrl && galleryCache) {
+          const before = galleryCache.length;
+          galleryCache = galleryCache.filter(item => item.url !== tempUrl);
+          if (galleryCache.length < before) {
+            galleryDirty = true;
+            console.warn(`[gallery] removed CDN-failed item with temp URL: ${tempUrl.slice(0, 60)}...`);
+          }
+        }
       }
     }
     renderGallery();
