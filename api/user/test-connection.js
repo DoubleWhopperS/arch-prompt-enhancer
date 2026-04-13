@@ -1,6 +1,23 @@
 const OpenAI = require('openai');
 const { withAuth } = require('../../lib/auth');
 
+function isAllowedUrl(urlStr) {
+  try {
+    const u = new URL(urlStr);
+    if (!['https:', 'http:'].includes(u.protocol)) return false;
+    const host = u.hostname.toLowerCase();
+    // 阻止内网地址
+    if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0') return false;
+    if (host.startsWith('10.') || host.startsWith('192.168.')) return false;
+    if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return false;
+    if (host === '169.254.169.254') return false; // 云元数据
+    if (host.endsWith('.internal') || host.endsWith('.local')) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 module.exports = withAuth(async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -14,6 +31,10 @@ module.exports = withAuth(async function handler(req, res) {
 
   if (!key || !url) {
     return res.status(400).json({ error: '请提供 API Key 和 Base URL' });
+  }
+
+  if (!isAllowedUrl(url)) {
+    return res.status(400).json({ error: 'Base URL 不合法，仅支持公网 HTTPS 地址' });
   }
 
   const client = new OpenAI({ apiKey: key, baseURL: url, timeout: 20000 });

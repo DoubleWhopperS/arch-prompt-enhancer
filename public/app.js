@@ -1,4 +1,10 @@
 // ═══════════════════════════════════════════════════════
+// Fetch 拦截器（必须在 AuthUI 之前定义）
+// ═══════════════════════════════════════════════════════
+
+const _originalFetch = window.fetch;
+
+// ═══════════════════════════════════════════════════════
 // Auth & Settings Module
 // ═══════════════════════════════════════════════════════
 
@@ -332,8 +338,7 @@ const AuthUI = (() => {
   };
 })();
 
-// ─── Fetch 拦截器: 自动为 /api/* 请求加 Authorization ───
-const _originalFetch = window.fetch;
+// ─── Fetch 拦截器: 自动为 /api/* 请求加 Authorization + 401 自动弹登录 ───
 window.fetch = async function(url, options = {}) {
   if (typeof url === 'string' && url.startsWith('/api/')) {
     const token = await AuthUI.getToken();
@@ -341,7 +346,11 @@ window.fetch = async function(url, options = {}) {
       options.headers = { ...options.headers, Authorization: `Bearer ${token}` };
     }
   }
-  return _originalFetch(url, options);
+  const resp = await _originalFetch(url, options);
+  if (resp.status === 401 && typeof url === 'string' && url.startsWith('/api/') && !url.startsWith('/api/config')) {
+    AuthUI.showLogin();
+  }
+  return resp;
 };
 
 // ═══════════════════════════════════════════════════════
