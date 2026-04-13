@@ -1,8 +1,5 @@
 const OpenAI = require('openai');
-
-// System Prompt v4.1（内联，避免 Vercel serverless 的文件路径问题）
-// 与 lib/system-prompt.js 保持同步
-// v4.1 — 中文输出 + 出图风格支持
+const { withAuth } = require('../lib/auth');
 const SYSTEM_PROMPT = `你是一位建筑效果图提示词工程师，服务于 Nano Banana Pro（Google Gemini 图像生成）。
 
 ## 任务
@@ -178,7 +175,7 @@ function buildUserContent({ intent, params, baseImageUrl, baseImage, references 
   return content;
 }
 
-module.exports = async function handler(req, res) {
+module.exports = withAuth(async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -189,18 +186,12 @@ module.exports = async function handler(req, res) {
     return res.status(400).json({ error: '请至少提供设计意图或基础图' });
   }
 
-  const apiKey = process.env.TUZI_API_KEY;
-  const baseURL = process.env.TUZI_BASE_URL || 'https://llm.ai-nebula.com/v1';
-  const model = process.env.ENHANCE_MODEL || 'claude-sonnet-4-6';
-
-  if (!apiKey) {
-    return res.status(500).json({ error: 'API Key 未配置' });
-  }
+  const { apiKey, baseUrl: baseURL, enhanceModel: model } = req.userKeys;
 
   const client = new OpenAI({
     apiKey,
     baseURL,
-    timeout: 120000, // 120s timeout
+    timeout: 120000,
   });
   const userContent = buildUserContent({ intent, params, baseImage, baseImageUrl, references });
 
@@ -239,4 +230,4 @@ module.exports = async function handler(req, res) {
   } finally {
     res.end();
   }
-};
+});

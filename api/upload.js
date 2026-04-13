@@ -1,10 +1,7 @@
-/**
- * 图片上传端点：接收单张 base64 图片，上传到 TensorArt CDN，返回 URL
- */
-
 const { uploadBufferToCDN } = require('../lib/cdn');
+const { withAuth } = require('../lib/auth');
 
-module.exports = async function handler(req, res) {
+module.exports = withAuth(async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -28,4 +25,4 @@ module.exports = async function handler(req, res) {
   } catch (err) {
     return res.status(500).json({ error: `上传失败: ${err.message}` });
   }
-};
+});
