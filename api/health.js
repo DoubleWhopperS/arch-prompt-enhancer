@@ -1,14 +1,19 @@
 const OpenAI = require('openai');
+const { withAuth, isAdmin } = require('../lib/auth');
 
-module.exports = async function handler(req, res) {
-  const apiKey = process.env.TUZI_API_KEY;
-  const baseURL = process.env.TUZI_BASE_URL || 'https://llm.ai-nebula.com/v1';
-  const model = process.env.MODEL || 'claude-opus-4-6';
+module.exports = withAuth(async function handler(req, res) {
+  if (!isAdmin(req.user)) {
+    return res.status(403).json({ error: '仅管理员可访问' });
+  }
+
+  const apiKey = process.env.ECHOTECH_API_KEY;
+  const baseURL = process.env.ECHOTECH_BASE_URL || 'https://llm.echo.tech/v1';
+  const model = process.env.ENHANCE_MODEL || 'claude-sonnet-4-6';
 
   const result = {
     env: {
-      TUZI_API_KEY: apiKey ? `${apiKey.slice(0, 8)}...${apiKey.slice(-4)}` : 'NOT SET',
-      TUZI_BASE_URL: baseURL,
+      ECHOTECH_API_KEY: apiKey ? 'configured' : 'NOT SET',
+      ECHOTECH_BASE_URL: baseURL,
       MODEL: model,
     },
     test: null,
@@ -41,4 +46,4 @@ module.exports = async function handler(req, res) {
   }
 
   res.json(result);
-};
+});

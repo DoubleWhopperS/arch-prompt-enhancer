@@ -1,16 +1,17 @@
-/**
- * Gallery beacon — 接收 navigator.sendBeacon 的紧急保存
- * 页面关闭前的安全网，防止未同步数据丢失
- */
 const { setGallery } = require('../lib/gallery-store');
+const { verifyAuth } = require('../lib/auth');
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
+
+  const user = await verifyAuth(req);
+  if (!user) return res.status(401).end();
+
   try {
     const { items } = req.body;
     if (items && Array.isArray(items)) {
-      await setGallery(items);
-      console.log(`[gallery-beacon] saved ${items.length} items`);
+      await setGallery(user.id, items);
+      console.log(`[gallery-beacon] saved ${items.length} items for ${user.id.slice(0, 8)}`);
     }
     return res.status(200).end();
   } catch (err) {

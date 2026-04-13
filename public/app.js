@@ -1,4 +1,359 @@
 // ═══════════════════════════════════════════════════════
+// Fetch 拦截器（必须在 AuthUI 之前定义）
+// ═══════════════════════════════════════════════════════
+
+const _originalFetch = window.fetch;
+
+// ═══════════════════════════════════════════════════════
+// Auth & Settings Module
+// ═══════════════════════════════════════════════════════
+
+let SUPABASE_URL = '';
+let SUPABASE_ANON_KEY = '';
+
+const PROVIDERS = {
+  echotech: {
+    name: 'EchoTech',
+    baseUrl: 'https://llm.echo.tech/v1',
+    enhanceModel: 'claude-sonnet-4-6',
+    generateModel: 'gemini-2.0-flash-exp',
+    guideUrl: null,
+  },
+  openrouter: {
+    name: 'OpenRouter',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    enhanceModel: 'anthropic/claude-sonnet-4-6',
+    generateModel: 'google/gemini-2.0-flash-exp',
+    guideUrl: 'https://openrouter.ai/keys',
+  },
+  custom: {
+    name: '自定义',
+    baseUrl: '',
+    enhanceModel: 'claude-sonnet-4-6',
+    generateModel: 'gemini-2.0-flash-exp',
+    guideUrl: null,
+  },
+};
+
+const AuthUI = (() => {
+  let supabase = null;
+  let currentUser = null;
+  let authMode = 'login'; // 'login' | 'signup'
+  let selectedProvider = 'echotech';
+
+  function getSupabase() {
+    if (!supabase && SUPABASE_URL && SUPABASE_ANON_KEY) {
+      supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    }
+    return supabase;
+  }
+
+  async function init() {
+    try {
+      const cfgResp = await _originalFetch('/api/config');
+      const cfg = await cfgResp.json();
+      SUPABASE_URL = cfg.supabaseUrl || '';
+      SUPABASE_ANON_KEY = cfg.supabaseAnonKey || '';
+    } catch (e) {
+      console.warn('[auth] Failed to load config:', e.message);
+    }
+
+    const sb = getSupabase();
+    if (!sb) {
+      console.warn('[auth] Supabase not configured, auth disabled');
+      return;
+    }
+
+    const { data: { session } } = await sb.auth.getSession();
+    if (session?.user) {
+      setUser(session.user);
+    } else {
+      showLoginBtn();
+    }
+
+    sb.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setUser(session.user);
+      } else {
+        clearUser();
+        showLoginBtn();
+      }
+    });
+  }
+
+  function setUser(user) {
+    currentUser = user;
+    const emailEl = document.getElementById('userEmail');
+    const menuEl = document.getElementById('userMenu');
+    const loginEl = document.getElementById('loginBtn');
+    if (emailEl) emailEl.textContent = user.email;
+    if (menuEl) menuEl.style.display = 'flex';
+    if (loginEl) loginEl.style.display = 'none';
+    hideModals();
+  }
+
+  function clearUser() {
+    currentUser = null;
+    const menuEl = document.getElementById('userMenu');
+    if (menuEl) menuEl.style.display = 'none';
+  }
+
+  function showLoginBtn() {
+    const loginEl = document.getElementById('loginBtn');
+    const menuEl = document.getElementById('userMenu');
+    if (loginEl) loginEl.style.display = 'block';
+    if (menuEl) menuEl.style.display = 'none';
+  }
+
+  function getToken() {
+    const sb = getSupabase();
+    if (!sb) return null;
+    return sb.auth.getSession().then(({ data }) => data?.session?.access_token || null);
+  }
+
+  function showLogin() {
+    authMode = 'login';
+    updateAuthUI();
+    document.getElementById('authModal').style.display = 'flex';
+    document.getElementById('authEmail').focus();
+  }
+
+  function hideModals() {
+    document.getElementById('authModal').style.display = 'none';
+    document.getElementById('settingsModal').style.display = 'none';
+    document.getElementById('authError').style.display = 'none';
+  }
+
+  function toggleMode() {
+    authMode = authMode === 'login' ? 'signup' : 'login';
+    updateAuthUI();
+  }
+
+  function updateAuthUI() {
+    document.getElementById('authTitle').textContent = authMode === 'login' ? '登录' : '注册';
+    document.getElementById('authSubmit').textContent = authMode === 'login' ? '登录' : '注册';
+    document.getElementById('authToggleText').textContent = authMode === 'login' ? '没有账号？' : '已有账号？';
+    document.getElementById('authToggle').textContent = authMode === 'login' ? '注册' : '登录';
+    document.getElementById('authError').style.display = 'none';
+  }
+
+  function showError(msg) {
+    const el = document.getElementById('authError');
+    el.textContent = msg;
+    el.style.display = 'block';
+  }
+
+  async function submit() {
+    const email = document.getElementById('authEmail').value.trim();
+    const password = document.getElementById('authPassword').value;
+    if (!email || !password) return showError('请填写邮箱和密码');
+    if (password.length < 6) return showError('密码至少 6 位');
+
+    const btn = document.getElementById('authSubmit');
+    btn.disabled = true;
+    btn.textContent = '处理中...';
+
+    const sb = getSupabase();
+    let result;
+    if (authMode === 'signup') {
+      result = await sb.auth.signUp({ email, password });
+    } else {
+      result = await sb.auth.signInWithPassword({ email, password });
+    }
+
+    btn.disabled = false;
+    btn.textContent = authMode === 'login' ? '登录' : '注册';
+
+    if (result.error) {
+      showError(result.error.message);
+    } else if (authMode === 'signup' && !result.data?.session) {
+      showError('注册成功！请查收验证邮件后登录。');
+    }
+  }
+
+  async function logout() {
+    const sb = getSupabase();
+    if (sb) await sb.auth.signOut();
+    clearUser();
+    showLoginBtn();
+  }
+
+  // ─── Settings ───
+
+  async function showSettings() {
+    document.getElementById('settingsModal').style.display = 'flex';
+    document.getElementById('settingsTestResult').style.display = 'none';
+
+    // Load current settings
+    try {
+      const token = await getToken();
+      const resp = await fetch('/api/user/keys', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await resp.json();
+      if (data.configured) {
+        selectProvider(data.provider || 'custom');
+        document.getElementById('settingsApiKey').value = '';
+        document.getElementById('settingsApiKey').placeholder = data.apiKeyHint || 'sk-...';
+        document.getElementById('settingsBaseUrl').value = data.baseUrl || '';
+        document.getElementById('settingsEnhanceModel').value = data.enhanceModel || '';
+        document.getElementById('settingsGenerateModel').value = data.generateModel || '';
+      } else {
+        selectProvider('echotech');
+      }
+    } catch (e) {
+      console.error('[settings] load error:', e);
+    }
+  }
+
+  function selectProvider(id) {
+    selectedProvider = id;
+    const provider = PROVIDERS[id] || PROVIDERS.custom;
+
+    // UI highlight
+    document.querySelectorAll('.provider-btn').forEach(btn => {
+      const isActive = btn.dataset.provider === id;
+      btn.classList.toggle('border-brand-500', isActive);
+      btn.classList.toggle('bg-brand-50', isActive);
+      btn.classList.toggle('dark:bg-brand-500/10', isActive);
+    });
+
+    // Auto-fill
+    const baseUrlEl = document.getElementById('settingsBaseUrl');
+    const enhanceEl = document.getElementById('settingsEnhanceModel');
+    const generateEl = document.getElementById('settingsGenerateModel');
+    const guideEl = document.getElementById('settingsGuideLink');
+
+    if (provider.baseUrl) baseUrlEl.value = provider.baseUrl;
+    if (provider.enhanceModel) enhanceEl.value = provider.enhanceModel;
+    if (provider.generateModel) generateEl.value = provider.generateModel;
+
+    if (provider.guideUrl) {
+      guideEl.href = provider.guideUrl;
+      guideEl.style.display = 'inline-block';
+    } else {
+      guideEl.style.display = 'none';
+    }
+
+    // Show/hide advanced for custom
+    if (id === 'custom') {
+      document.getElementById('advancedSettings').open = true;
+    }
+  }
+
+  function toggleKeyVisibility() {
+    const input = document.getElementById('settingsApiKey');
+    input.type = input.type === 'password' ? 'text' : 'password';
+  }
+
+  async function testConnection() {
+    const btn = document.getElementById('settingsTestBtn');
+    const resultEl = document.getElementById('settingsTestResult');
+    btn.disabled = true;
+    btn.textContent = '测试中...';
+    resultEl.style.display = 'block';
+    resultEl.innerHTML = '<span class="text-gray-400">正在测试连接...</span>';
+
+    const apiKey = document.getElementById('settingsApiKey').value.trim();
+    const baseUrl = document.getElementById('settingsBaseUrl').value.trim();
+    const enhanceModel = document.getElementById('settingsEnhanceModel').value.trim();
+    const generateModel = document.getElementById('settingsGenerateModel').value.trim();
+
+    try {
+      const token = await getToken();
+      const resp = await fetch('/api/user/test-connection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ apiKey: apiKey || undefined, baseUrl: baseUrl || undefined, enhanceModel, generateModel }),
+      });
+      const data = await resp.json();
+
+      let html = '';
+      if (data.text?.ok) {
+        html += `<div class="text-green-600">&#10003; 文本对话: 正常 (${data.text.model})</div>`;
+      } else {
+        html += `<div class="text-red-500">&#10007; 文本对话: ${data.text?.error || '失败'}</div>`;
+      }
+      if (data.image?.ok) {
+        html += `<div class="text-green-600">&#10003; 图像生成: 正常 (${data.image.model})</div>`;
+      } else {
+        html += `<div class="text-amber-500">&#10007; 图像生成: ${data.image?.warning || data.image?.error || '不支持'}</div>`;
+      }
+      resultEl.innerHTML = html;
+    } catch (err) {
+      resultEl.innerHTML = `<div class="text-red-500">测试失败: ${err.message}</div>`;
+    }
+
+    btn.disabled = false;
+    btn.textContent = '测试连接';
+  }
+
+  async function saveSettings() {
+    const btn = document.getElementById('settingsSaveBtn');
+    const apiKey = document.getElementById('settingsApiKey').value.trim();
+    const baseUrl = document.getElementById('settingsBaseUrl').value.trim();
+    const enhanceModel = document.getElementById('settingsEnhanceModel').value.trim();
+    const generateModel = document.getElementById('settingsGenerateModel').value.trim();
+
+    if (!apiKey) {
+      const resultEl = document.getElementById('settingsTestResult');
+      resultEl.style.display = 'block';
+      resultEl.innerHTML = '<div class="text-red-500">请输入 API Key</div>';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = '保存中...';
+
+    try {
+      const token = await getToken();
+      const resp = await fetch('/api/user/keys', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ apiKey, baseUrl, enhanceModel, generateModel, provider: selectedProvider }),
+      });
+      const data = await resp.json();
+      if (data.ok) {
+        hideModals();
+      } else {
+        const resultEl = document.getElementById('settingsTestResult');
+        resultEl.style.display = 'block';
+        resultEl.innerHTML = `<div class="text-red-500">${data.error}</div>`;
+      }
+    } catch (err) {
+      const resultEl = document.getElementById('settingsTestResult');
+      resultEl.style.display = 'block';
+      resultEl.innerHTML = `<div class="text-red-500">保存失败: ${err.message}</div>`;
+    }
+
+    btn.disabled = false;
+    btn.textContent = '保存';
+  }
+
+  return {
+    init, showLogin, hideModals, toggleMode, submit, logout,
+    showSettings, selectProvider, toggleKeyVisibility, testConnection, saveSettings,
+    getToken: () => getToken(),
+    getUser: () => currentUser,
+  };
+})();
+
+// ─── Fetch 拦截器: 自动为 /api/* 请求加 Authorization + 401 自动弹登录 ───
+window.fetch = async function(url, options = {}) {
+  if (typeof url === 'string' && url.startsWith('/api/')) {
+    const token = await AuthUI.getToken();
+    if (token) {
+      options.headers = { ...options.headers, Authorization: `Bearer ${token}` };
+    }
+  }
+  const resp = await _originalFetch(url, options);
+  if (resp.status === 401 && typeof url === 'string' && url.startsWith('/api/') && !url.startsWith('/api/config')) {
+    AuthUI.showLogin();
+  }
+  return resp;
+};
+
+// ═══════════════════════════════════════════════════════
 // State
 // ═══════════════════════════════════════════════════════
 
@@ -2185,8 +2540,10 @@ async function submitRefBatchEdit() {
 // Init
 // ═══════════════════════════════════════════════════════
 
-galleryLoadPromise = loadGallery(); // async — loads cloud gallery, updates count
-initRefInlineDropZone();
+AuthUI.init().then(() => {
+  galleryLoadPromise = loadGallery();
+  initRefInlineDropZone();
+});
 
 // Safety net: flush unsaved gallery data before page unload
 window.addEventListener('beforeunload', () => {

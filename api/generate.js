@@ -1,12 +1,16 @@
 /**
- * 图片生成端点：TAMS API 集成
- * 支持 Gemini (genai) 和 Seedream (volcano) 模型
- * SSE 流式返回生成进度和结果
+ * 图片生成端点
  *
- * v2: 并行创建+轮询+上传，避免串行超时
+ * 双路径:
+ *   管理员 → TAMS 异步 API (Gemini + Seedream)
+ *   外部用户 → OpenAI 兼容 chat completions (Gemini 出图)
+ *
+ * v3: 用户账号系统 + OpenAI 兼容出图路径
  */
 
+const OpenAI = require('openai');
 const { uploadBase64ToCDN, downloadAndUploadToCDN } = require('../lib/cdn');
+const { withAuth, isAdmin } = require('../lib/auth');
 
 const TAMS_BASE = 'https://cn.tensorart.net';
 
@@ -260,53 +264,95 @@ async function uploadOneToCDN({ index, imageResult, cdnToken, res }) {
   console.error(`[generate] CDN upload exhausted all retries for ${index + 1}`);
 }
 
-// ─── Handler ───
+// ─── OpenAI 兼容出图（外部用户路径）───
 
-module.exports = async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+function extractImageFromChatResponse(message) {
+  if (!message) return null;
+  const content = message.content;
 
-  const { prompt, model: modelKey, baseImageUrl, referenceUrls, refAnalyses, aspectRatio, imageSize, count } = req.body;
+  // 格式 A: content 是数组，含 image part
+  if (Array.isArray(content)) {
+    for (const part of content) {
+      if (part.type === 'image_url' && part.image_url?.url) {
+        const url = part.image_url.url;
+        const m = url.match(/^data:([^;]+);base64,(.+)$/);
+        if (m) return { base64: m[2], mime: m[1] };
+      }
+      if (part.type === 'image' && part.image?.data) {
+        return { base64: part.image.data, mime: part.image.mimeType || 'image/png' };
+      }
+      // inline_data 格式
+      if (part.inline_data?.data) {
+        return { base64: part.inline_data.data, mime: part.inline_data.mime_type || 'image/png' };
+      }
+    }
+  }
 
-  if (!prompt) return res.status(400).json({ error: '缺少 prompt' });
+  // 格式 B: content 是字符串，含 markdown 嵌入的 base64
+  if (typeof content === 'string') {
+    const m = content.match(/data:(image\/[^;]+);base64,([A-Za-z0-9+/=]+)/);
+    if (m) return { base64: m[2], mime: m[1] };
+  }
 
-  const tamsToken = process.env.TAMS_TOKEN || process.env.TAMS_API_TOKEN;
-  if (!tamsToken) return res.status(500).json({ error: 'TAMS_TOKEN 未配置，请在 .env 中设置' });
+  return null;
+}
 
-  const modelInfo = MODEL_MAP[modelKey || 'nano-banana-pro'];
-  if (!modelInfo) return res.status(400).json({ error: `未知模型: ${modelKey}` });
+async function generateOneImageOpenAI({ index, total, client, model, prompt, baseImageUrl, referenceUrls, res }) {
+  const label = `${index + 1}/${total}`;
+  sendSSE(res, { type: 'progress', message: `Generating ${label}...`, index });
 
+  const content = [];
+  if (baseImageUrl) {
+    content.push({ type: 'image_url', image_url: { url: baseImageUrl } });
+  }
+  if (referenceUrls?.length) {
+    for (const ref of referenceUrls) {
+      content.push({ type: 'image_url', image_url: { url: ref } });
+    }
+  }
+  content.push({ type: 'text', text: prompt });
+
+  const resp = await client.chat.completions.create({
+    model,
+    messages: [{ role: 'user', content }],
+    max_tokens: 4096,
+  });
+
+  const imageData = extractImageFromChatResponse(resp.choices?.[0]?.message);
+  if (!imageData) throw new Error('模型未返回图片，请确认该模型支持图像生成');
+
+  const tempUrl = `data:${imageData.mime};base64,${imageData.base64}`;
+  sendSSE(res, { type: 'image', url: tempUrl, index });
+  console.log(`[generate:openai] ${label} generated (${imageData.mime}, ${Math.round(imageData.base64.length / 1024)}KB)`);
+
+  return { index, imageResult: { type: 'base64', value: imageData.base64, mime: imageData.mime } };
+}
+
+async function handleOpenAIGeneration(req, res) {
+  const { prompt, baseImageUrl, referenceUrls, refAnalyses, count } = req.body;
+  const { apiKey, baseUrl, generateModel } = req.userKeys;
+
+  const client = new OpenAI({ apiKey, baseURL: baseUrl, timeout: 120000 });
   const imageCount = Math.min(Math.max(parseInt(count, 10) || 2, 1), 4);
-  const ratio = aspectRatio || '4:3';
-  const size = imageSize || '2K';
 
-  // SSE
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.flushHeaders?.();
-
-  sendSSE(res, { type: 'info', model: modelInfo.name, count: imageCount });
-  // P0: 构建结构化参考图指令，让 Gemini 明确每张图的角色
   const structuredPrompt = buildGeminiPrompt(
     prompt,
     !!baseImageUrl,
     (referenceUrls || []).length,
     refAnalyses || []
   );
-  console.log(`[generate] model=${modelInfo.name} count=${imageCount} ratio=${ratio} size=${size} refs=${(referenceUrls||[]).length} mode=generate-then-upload`);
-  if ((referenceUrls || []).length > 0) {
-    console.log(`[generate] structured prompt:\n${structuredPrompt.slice(0, 500)}...`);
-  }
 
-  const cdnToken = process.env.TENSORART_BEARER_TOKEN;
-  const shared = { tamsToken, modelInfo, prompt: structuredPrompt, baseImageUrl, referenceUrls: referenceUrls || [], ratio, size, res, total: imageCount };
+  sendSSE(res, { type: 'info', model: generateModel, count: imageCount });
+  console.log(`[generate:openai] model=${generateModel} count=${imageCount} refs=${(referenceUrls||[]).length}`);
 
-  // Phase 1: Generate all images in parallel (show temp URLs immediately)
   const genTasks = [];
   for (let i = 0; i < imageCount; i++) {
     genTasks.push(
-      generateOneImage({ ...shared, index: i }).catch(err => {
-        console.error(`[generate] ${i + 1}/${imageCount} error:`, err.message);
+      generateOneImageOpenAI({
+        index: i, total: imageCount, client, model: generateModel,
+        prompt: structuredPrompt, baseImageUrl, referenceUrls: referenceUrls || [], res,
+      }).catch(err => {
+        console.error(`[generate:openai] ${i + 1}/${imageCount} error:`, err.message);
         sendSSE(res, { type: 'error', message: err.message, index: i });
         return null;
       })
@@ -314,14 +360,94 @@ module.exports = async function handler(req, res) {
   }
   const genResults = (await Promise.all(genTasks)).filter(Boolean);
 
-  // Phase 2: Batch upload to CDN (in parallel, non-blocking for user)
+  // CDN 上传（平台 Token）
+  const cdnToken = process.env.TENSORART_BEARER_TOKEN;
   if (genResults.length > 0 && cdnToken) {
     sendSSE(res, { type: 'progress', message: 'Uploading to CDN...', index: -1 });
     await Promise.allSettled(
       genResults.map(r => uploadOneToCDN({ ...r, cdnToken, res }))
     );
   }
+}
+
+// ─── 管理员 TAMS 路径 ───
+
+async function handleTAMSGeneration(req, res) {
+  const { prompt, model: modelKey, baseImageUrl, referenceUrls, refAnalyses, aspectRatio, imageSize, count } = req.body;
+
+  const tamsToken = process.env.TAMS_TOKEN || process.env.TAMS_API_TOKEN;
+  if (!tamsToken) {
+    sendSSE(res, { type: 'error', message: 'TAMS_TOKEN 未配置' });
+    return;
+  }
+
+  const modelInfo = MODEL_MAP[modelKey || 'nano-banana-pro'];
+  if (!modelInfo) {
+    sendSSE(res, { type: 'error', message: `未知模型: ${modelKey}` });
+    return;
+  }
+
+  const imageCount = Math.min(Math.max(parseInt(count, 10) || 2, 1), 4);
+  const ratio = aspectRatio || '4:3';
+  const size = imageSize || '2K';
+
+  sendSSE(res, { type: 'info', model: modelInfo.name, count: imageCount });
+  const structuredPrompt = buildGeminiPrompt(
+    prompt,
+    !!baseImageUrl,
+    (referenceUrls || []).length,
+    refAnalyses || []
+  );
+  console.log(`[generate:tams] model=${modelInfo.name} count=${imageCount} ratio=${ratio} size=${size} refs=${(referenceUrls||[]).length}`);
+
+  const cdnToken = process.env.TENSORART_BEARER_TOKEN;
+  const shared = { tamsToken, modelInfo, prompt: structuredPrompt, baseImageUrl, referenceUrls: referenceUrls || [], ratio, size, res, total: imageCount };
+
+  const genTasks = [];
+  for (let i = 0; i < imageCount; i++) {
+    genTasks.push(
+      generateOneImage({ ...shared, index: i }).catch(err => {
+        console.error(`[generate:tams] ${i + 1}/${imageCount} error:`, err.message);
+        sendSSE(res, { type: 'error', message: err.message, index: i });
+        return null;
+      })
+    );
+  }
+  const genResults = (await Promise.all(genTasks)).filter(Boolean);
+
+  if (genResults.length > 0 && cdnToken) {
+    sendSSE(res, { type: 'progress', message: 'Uploading to CDN...', index: -1 });
+    await Promise.allSettled(
+      genResults.map(r => uploadOneToCDN({ ...r, cdnToken, res }))
+    );
+  }
+}
+
+// ─── Handler ───
+
+module.exports = withAuth(async function handler(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  const { prompt } = req.body;
+  if (!prompt) return res.status(400).json({ error: '缺少 prompt' });
+
+  // SSE
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  try {
+    if (isAdmin(req.user)) {
+      await handleTAMSGeneration(req, res);
+    } else {
+      await handleOpenAIGeneration(req, res);
+    }
+  } catch (err) {
+    console.error('[generate] unexpected error:', err.message);
+    sendSSE(res, { type: 'error', message: err.message });
+  }
 
   sendSSE(res, { type: 'done' });
   res.end();
-};
+});
