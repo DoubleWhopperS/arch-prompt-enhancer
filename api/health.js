@@ -1,14 +1,14 @@
 const OpenAI = require('openai');
 
 module.exports = async function handler(req, res) {
-  const apiKey = process.env.TUZI_API_KEY;
-  const baseURL = process.env.TUZI_BASE_URL || 'https://llm.ai-nebula.com/v1';
-  const model = process.env.MODEL || 'claude-opus-4-6';
+  const apiKey = process.env.ECHOTECH_API_KEY;
+  const baseURL = process.env.ECHOTECH_BASE_URL || 'https://llm.echo.tech/v1';
+  const model = process.env.ENHANCE_MODEL || 'claude-sonnet-4-6';
 
   const result = {
     env: {
-      TUZI_API_KEY: apiKey ? `${apiKey.slice(0, 8)}...${apiKey.slice(-4)}` : 'NOT SET',
-      TUZI_BASE_URL: baseURL,
+      ECHOTECH_API_KEY: apiKey ? `${apiKey.slice(0, 8)}...${apiKey.slice(-4)}` : 'NOT SET',
+      ECHOTECH_BASE_URL: baseURL,
       MODEL: model,
     },
     test: null,

@@ -67,7 +67,7 @@ app.listen(PORT, () => {
 
   // 环境检查
   const checks = [
-    ['TUZI_API_KEY', !!process.env.TUZI_API_KEY, 'Prompt 增强'],
+    ['ECHOTECH_API_KEY', !!process.env.ECHOTECH_API_KEY, 'Prompt 增强'],
     ['TAMS_TOKEN', !!(process.env.TAMS_TOKEN || process.env.TAMS_API_TOKEN), '图片生成'],
     ['TENSORART_BEARER_TOKEN', !!process.env.TENSORART_BEARER_TOKEN, 'CDN 上传'],
     ['BLOB_READ_WRITE_TOKEN', !!process.env.BLOB_READ_WRITE_TOKEN, '素材库'],
