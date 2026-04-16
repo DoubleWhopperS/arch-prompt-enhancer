@@ -40,53 +40,79 @@ function tamsHeaders(token) {
 
 // ─── Gemini (genai) ───
 
+// ─── 基础图几何锁定 — 动态语义池 ───
+// 目的：避免 LLM 把固定模板末尾约束当作"已知套话"忽略。
+// 每次随机选 1 句，让 prompt 末尾的强约束保持新鲜度。
+const BASE_IMAGE_GEOMETRY_LOCKS = [
+  'CRITICAL: The output MUST depict the same building from Image 1 — same massing, same facade pattern, same window arrangement, same overall geometry. Only lighting, atmosphere, materials and surroundings may differ.',
+  'IMPORTANT: Do NOT invent a different building. The architectural form, footprint, proportions and structural language from Image 1 must be preserved exactly as the subject of the output.',
+  'CONSTRAINT: This is image-to-image transformation, NOT text-to-image generation. The building in the output must be visually recognizable as the same structure as Image 1, viewed from the same angle.',
+  'REMINDER: Image 1 is the architectural subject, not merely a style reference. Generate the same building from approximately the same camera angle, applying only the modifications described in the instructions.',
+  'GEOMETRY LOCK: Treat Image 1 as the structural blueprint. Reproduce its geometry faithfully — facade, openings, roofline, materials placement; only photographic style, lighting, weather and ambient elements may change per the prompt above.',
+  'STRUCTURAL FIDELITY: The output must be unmistakably the same building shown in Image 1. Do not redesign, restyle the architecture, or generate a similar-looking-but-different structure. Only the photographic treatment changes.',
+];
+
+function pickGeometryLock() {
+  return BASE_IMAGE_GEOMETRY_LOCKS[Math.floor(Math.random() * BASE_IMAGE_GEOMETRY_LOCKS.length)];
+}
+
 function buildGeminiPrompt(prompt, hasBase, refCount, refAnalyses) {
-  // 无参考图时直接用原始 prompt
-  if (refCount === 0) return prompt;
+  // 纯 T2I 场景（无基础图无参考图）：保持旧行为，直接 return 原 prompt
+  if (!hasBase && refCount === 0) return prompt;
 
-  const imageLabels = [];
-  if (hasBase) imageLabels.push('Image 1 is the base architectural rendering to modify.');
-  const refStart = hasBase ? 2 : 1;
-  const refEnd = refStart + refCount - 1;
-  if (refCount === 1) {
-    imageLabels.push(`Image ${refStart} is a style reference image.`);
-  } else {
-    imageLabels.push(`Images ${refStart}-${refEnd} are style reference images.`);
-  }
+  const lines = [];
 
-  const lines = [
-    ...imageLabels,
-    '',
-    'You MUST match the visual characteristics of the style reference images:',
-    '- Match their color palette: highlight tones, shadow tones, overall warmth/coolness',
-    '- Match their lighting: direction, intensity, color temperature, and atmosphere',
-    '- Match their vegetation style: tree species, canopy shape, density, and placement',
-    '- Match their sky treatment and environmental mood',
-    '- Match their material rendering quality and texture style',
-    '',
-  ];
-
+  // 1. 基础图角色标签（B-1 修复：之前 refCount===0 时缺失，导致 i2i 退化为 t2i）
   if (hasBase) {
-    lines.push('Generate a new image based on Image 1, applying the visual style from the reference images.');
-  } else {
-    lines.push('Generate a new architectural rendering applying the visual style from the reference images.');
+    lines.push('Image 1 is the base architectural rendering to modify.');
+    lines.push('MAINTAIN the exact building geometry, structure and spatial layout from Image 1.');
+    lines.push('Only modify lighting, atmosphere, materials texture, vegetation and human figures as instructed below.');
   }
 
-  // P1: 注入参考图分析结果作为硬约束
-  if (refAnalyses && refAnalyses.length > 0) {
-    const validAnalyses = refAnalyses.filter(a => a && a.trim());
-    if (validAnalyses.length > 0) {
-      lines.push('');
-      lines.push('--- Reference Image Visual Analysis (strictly follow these) ---');
-      validAnalyses.forEach((analysis, i) => {
-        lines.push(`[Reference ${i + 1}] ${analysis}`);
-      });
+  // 2. 参考图角色标签 + 风格匹配指令
+  if (refCount > 0) {
+    const refStart = hasBase ? 2 : 1;
+    const refEnd = refStart + refCount - 1;
+    if (refCount === 1) {
+      lines.push(`Image ${refStart} is a style reference image.`);
+    } else {
+      lines.push(`Images ${refStart}-${refEnd} are style reference images.`);
+    }
+    lines.push('');
+    lines.push('You MUST match the visual characteristics of the style reference images:');
+    lines.push('- Match their color palette: highlight tones, shadow tones, overall warmth/coolness');
+    lines.push('- Match their lighting: direction, intensity, color temperature, and atmosphere');
+    lines.push('- Match their vegetation style: tree species, canopy shape, density, and placement');
+    lines.push('- Match their sky treatment and environmental mood');
+    lines.push('- Match their material rendering quality and texture style');
+    lines.push('');
+    lines.push(hasBase
+      ? 'Generate a new image based on Image 1, applying the visual style from the reference images.'
+      : 'Generate a new architectural rendering applying the visual style from the reference images.');
+
+    // P1: 注入参考图分析结果作为硬约束
+    if (refAnalyses && refAnalyses.length > 0) {
+      const validAnalyses = refAnalyses.filter(a => a && a.trim());
+      if (validAnalyses.length > 0) {
+        lines.push('');
+        lines.push('--- Reference Image Visual Analysis (strictly follow these) ---');
+        validAnalyses.forEach((analysis, i) => {
+          lines.push(`[Reference ${i + 1}] ${analysis}`);
+        });
+      }
     }
   }
 
+  // 3. 用户增强后的 prompt 主体
   lines.push('');
   lines.push('Specific instructions:');
   lines.push(prompt);
+
+  // 4. 末尾动态强调（B-2：仅当 hasBase 时，从语义池随机 pick 一句保持新鲜度）
+  if (hasBase) {
+    lines.push('');
+    lines.push(pickGeometryLock());
+  }
 
   return lines.join('\n');
 }
