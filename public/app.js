@@ -404,6 +404,14 @@ const RENDER_STYLES = {
     name: '日光写实风',
     prompt: '晴朗白日，锐利中性白日光，清晰硬阴影与高动态范围。极淡青空，空气通透度高。中高对比度——光影体积感强，阴影边缘清晰。中性自然饱和度，色彩客观真实。画面锐利高保真，冷静克制，"商业大片质感"。',
   },
+  'architectural-photography-exterior': {
+    name: '室外建筑摄影',
+    prompt: '真实建筑摄影作品（非渲染图）。器材：中画幅 Phase One IQ4 150MP 或 Hasselblad H6D-100c，搭配 Schneider Kreuznach 35mm/45mm；备选全画幅 Sony A7R V + Canon TS-E 17mm f/4L 移轴广角。参数：ISO 100 基础感光度（最大 14 档动态范围）、f/8-f/11 黄金光圈（避开 f/16 后衍射变软）、三脚架+反光镜预升+2秒延时快门、移轴 ±12mm shift 矫正垂直（不依赖后期 PTLens）。构图按建筑摄影法则执行：一点透视正立面对称（纪念性建筑）/两点透视建筑斜前 30-60°且水平线穿建筑中部/引导线（铺装/河岸/栏杆）引向建筑入口/前景遮挡（树枝/廊柱）占画面 20-30% framing/入口或视觉中心放 1/3 锚点。后期工作流：Capture One Pro 调色、拍摄时 X-Rite ColorChecker 校准白平衡 K 值精确到 50K、HDR ±2EV 包围 3 帧合成 32-bit float TIFF；关键的"反 HDR"映射——Highlights 不低于 -70（再低出灰雾）、Shadows 不超 +50（再高塑料感）、Vibrance 优先于 Saturation 避免 Velvia LUT 塑料感；输出 8-bit JPEG 质量 90 含轻微微块状压缩痕迹。物理正确性（反 CG 核心）：大气透视——远景物体 contrast -30%/saturation -20%/明度 +5-10%；镜头暗角四角自然 -0.3 至 -0.5EV；菲涅尔反射——水面/玻璃反射强度随入射角衰减，水面反射 30-60% 强度（非镜面 100%）含微涟漪与油膜；传感器原生 luminance noise——ISO 100 亮部 1-2%/暗部 3-5% 颗粒（不是零噪点）；真实瑕疵——植被含枯枝病斑不对称生长、铺装有磨损接缝灰、玻璃反光不规则有污渍、混凝土施工纹路与缝隙。明确禁止：8K 渲染感/零噪点/AO 重墙角脏黑/玻璃零污渍完美反射/植被对称排列（CG 库植物）/天空过度蓝/AO 假体积雾/地面 100% 完美镜面反射/形容词式描述（"商业大片质感"/"电影感"/"高保真"等空洞词）。',
+  },
+  'architectural-photography-interior': {
+    name: '室内建筑摄影',
+    prompt: '真实室内建筑摄影作品（非渲染图）。器材：Sony A7R V 或 Hasselblad H6D + Canon RF 14-35mm f/4L 或 Sigma 14-24mm f/2.8 ART 广角变焦。参数：ISO 400-800（保留室内光层次不开高 ISO 过亮）、f/8 平衡景深与衍射、三脚架长曝光 1/4-2s（必须）、移轴 ±12mm shift 修垂直或后期 PTLens 矫正。HDR 与多色温处理：包围曝光 ±2EV 拍 5 帧 Photomatix Pro/Lightroom Merge 合成；以室内中等亮度为基准曝光，窗外景观压 -1.5 至 -2EV 保细节绝不死白；反 HDR 映射避免 Photomatix 默认"光晕脏污感"；多色温混光保留——钨丝灯 3000K 暖橙 + 日光透窗 5500K 冷蓝 + LED 灯带 4000K 中性白**不强行统一白平衡**（色温差异本身是真实感来源）；点光源带轻微暖斑光晕（5-10px 软光晕）非 CG 硬切边发光体。构图：单点透视消失点居中（走廊/对称大厅）/对角构图引导线穿画面对角（楼梯/动线区）/三脚架水平仪校准水平线绝对水平/垂直线严格垂直。人物处理（标志性手法）：1-3 个行人以 1/15-1/4s 快门拍摄产生明显运动模糊（虚影但脚部能辨位置）/同画面静止家具与坐着的人保持清晰/模糊+清晰对比传达"正在被使用的空间"且不抢建筑主角。后期工作流：Capture One Pro 调色、X-Rite ColorChecker 校准、Highlights -50 至 -70、Shadows +20 至 +40（保持暗部层次但不塑料）、局部画笔单独压暗窗外、输出 8-bit JPEG 质量 90。物理正确性：镜头暗角四角 -0.3 至 -0.5EV；ISO 400-800 传感器轻微 luminance noise 可见（亮部 2%/暗部 5%）；菲涅尔效应——玻璃栏杆反射强度随角度变化，地面打蜡反射 40-70% 非镜面；真实瑕疵——地板有印痕磨损、玻璃栏杆有指纹、踢脚线接缝灰、椅子摆放轻微不齐、天花板灯具阵列非数学完美对称、墙面真实施工纹路。明确禁止：零噪点/AO 重墙角脏黑/家具完美对齐/灯具数学完美阵列/窗外死白曝光/室内光全房间均匀照亮（无明暗层次）/塑料感家具材质/玻璃零污渍/形容词式描述（"商业大片质感"/"电影感"/"高保真"等）。',
+  },
 };
 const MAX_IMAGE_DIM = 2048;
 const STORAGE_KEY = 'arch_gallery';
@@ -1789,6 +1797,8 @@ const STYLE_LABELS = {
   'urban-rain': '都市雨幕风',
   'warm-fog': '暖调光雾风',
   'daylight-realism': '日光写实风',
+  'architectural-photography-exterior': '室外建筑摄影',
+  'architectural-photography-interior': '室内建筑摄影',
 };
 
 async function loadRefLibrary() {
