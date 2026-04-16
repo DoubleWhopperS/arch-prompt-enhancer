@@ -441,18 +441,28 @@ function switchView(view) {
 // Image Compression
 // ═══════════════════════════════════════════════════════
 
-function compressImage(dataUrl) {
+// ref 库上传专用：1024 max + JPEG 75%（参考图视觉分析够用，控总体积避开 Vercel 4.5MB body 上限）
+const MAX_REF_IMAGE_DIM = 1024;
+const REF_IMAGE_QUALITY = 0.75;
+
+function compressImage(dataUrl, opts = {}) {
+  const maxDim = opts.maxDim ?? MAX_IMAGE_DIM;
+  const quality = opts.quality ?? 0.90;
+  const forceReencode = opts.forceReencode ?? false;
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
       let { width, height } = img;
-      if (width <= MAX_IMAGE_DIM && height <= MAX_IMAGE_DIM) { resolve(dataUrl); return; }
-      if (width > height) { height = Math.round(height * MAX_IMAGE_DIM / width); width = MAX_IMAGE_DIM; }
-      else { width = Math.round(width * MAX_IMAGE_DIM / height); height = MAX_IMAGE_DIM; }
+      const needsResize = width > maxDim || height > maxDim;
+      if (!needsResize && !forceReencode) { resolve(dataUrl); return; }
+      if (needsResize) {
+        if (width > height) { height = Math.round(height * maxDim / width); width = maxDim; }
+        else { width = Math.round(width * maxDim / height); height = maxDim; }
+      }
       const canvas = document.createElement('canvas');
       canvas.width = width; canvas.height = height;
       canvas.getContext('2d').drawImage(img, 0, 0, width, height);
-      resolve(canvas.toDataURL('image/jpeg', 0.90));
+      resolve(canvas.toDataURL('image/jpeg', quality));
     };
     img.src = dataUrl;
   });
@@ -2138,11 +2148,12 @@ async function submitRefUpload() {
   const description = document.getElementById('refUploadDesc').value.trim();
 
   try {
-    // Convert files to data URIs
+    // Convert files to data URIs (压缩到 1024 max + JPEG 75%，避开 Vercel 4.5MB body 上限)
     const images = [];
     for (const file of refUploadFiles) {
-      const dataUrl = await fileToDataUrl(file);
-      images.push({ data: dataUrl, tags: { ...tags }, description });
+      const rawDataUrl = await fileToDataUrl(file);
+      const compressed = await compressImage(rawDataUrl, { maxDim: MAX_REF_IMAGE_DIM, quality: REF_IMAGE_QUALITY, forceReencode: true });
+      images.push({ data: compressed, tags: { ...tags }, description });
     }
 
     const resp = await fetch('/api/ref-library', {
@@ -2151,6 +2162,13 @@ async function submitRefUpload() {
       body: JSON.stringify({ images }),
     });
 
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => '');
+      const hint = errText.includes('Request En') || resp.status === 413
+        ? '（图片总量超过 Vercel 4.5MB 上限，请分批上传或减少单批数量）'
+        : '';
+      throw new Error(`上传失败 HTTP ${resp.status}${hint}`);
+    }
     const data = await resp.json();
     if (data.error) throw new Error(data.error);
 
@@ -2206,10 +2224,11 @@ async function handleInlineRefUploadFiles(fileList) {
   try {
     const images = [];
     for (let i = 0; i < files.length; i++) {
-      progressText.textContent = `读取图片 ${i + 1}/${files.length}...`;
+      progressText.textContent = `压缩图片 ${i + 1}/${files.length}...`;
       const dataUrl = await fileToDataUrl(files[i]);
+      const compressed = await compressImage(dataUrl, { maxDim: MAX_REF_IMAGE_DIM, quality: REF_IMAGE_QUALITY, forceReencode: true });
       images.push({
-        data: dataUrl,
+        data: compressed,
         tags: { style: '', dimensions: [], scene: '', custom: [] },
         description: '',
       });
@@ -2221,6 +2240,13 @@ async function handleInlineRefUploadFiles(fileList) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ images }),
     });
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => '');
+      const hint = errText.includes('Request En') || resp.status === 413
+        ? '（图片总量超过 Vercel 4.5MB 上限，请分批上传或减少单批数量）'
+        : '';
+      throw new Error(`上传失败 HTTP ${resp.status}${hint}`);
+    }
     const data = await resp.json();
     if (data.error) throw new Error(data.error);
 
